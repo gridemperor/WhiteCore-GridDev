@@ -1,0 +1,48 @@
+<!--
+
+{HelpText}               Help
+{HelpViewersConfigText}  Help Viewers Configuration
+-->
+
+<h2>{SystemName}: {HelpText}</h2>
+<div id="help">
+  <a class="colorbox" href="images/viewers/angstorm_01.jpg">
+    <img class="angstormimage" src="images/viewers/angstorm_thumb_01.jpg" alt="{AngstormViewer}" title="{AngstormViewer}">
+  </a>
+  <a class="colorbox" href="images/viewers/astra_01.jpg">
+    <img class="astraimage" src="images/viewers/astra_thumb_01.jpg" alt="{AstraViewer}" title="{AstraViewer}">
+  </a>
+  <a class="colorbox" href="images/viewers/firestorm_01.jpg">
+    <img class="firestormimage" src="images/viewers/firestorm_thumb_01.jpg" alt="{FirestormViewer}" title="{FirestormViewer}">
+  </a>
+  <a class="colorbox" href="images/viewers/imprudence_01.jpg">
+    <img class="imprudenceimage" src="images/viewers/imprudence_thumb_01.jpg" alt="{ImprudenceViewer}" title="{ImprudenceViewer}">
+  </a>
+  <p>
+  <a class="colorbox" href="images/viewers/phoenix_01.jpg">
+    <img class="phoeniximage" src="images/viewers/phoenix_thumb_01.jpg" alt="{PhoenixViewer}" title="{PhoenixViewer}">
+  </a>
+  <a class="colorbox" href="images/viewers/singularity_01.jpg">
+    <img class="singularityimage" src="images/viewers/singularity_thumb_01.jpg" alt="{SingularityViewer}" title="{SingularityViewer}">
+  </a>
+  <a class="colorbox" href="images/viewers/voodoo_01.jpg">
+    <img class="voodooimage" src="images/viewers/voodoo_thumb_01.jpg" alt="{VoodooViewer}" title="{VoodooViewer}">
+  </a>
+  <a class="colorbox" href="images/viewers/zen_01.jpg">
+    <img class="zenimage" src="images/viewers/zen_thumb_01.jpg" alt="{ZenViewer}" title="{ZenViewer}">
+  </a>
+  <h3>{SystemName}: {HelpViewersConfigText}</h3>
+  <p>Login URI: {SystemURL}/</p>
+</div>
+
+<script type="text/javascript">
+  $(document).ready(function(){$("a.colorbox").colorbox({rel:'a.colorbox'});});
+  
+  $('img.angstormimage, img.astraimage, img.firestormimage, img.imprudenceimage, img.phoeniximage, img.singularityimage, img.voodooimage, img.zenimage').css('opacity', 0.3);
+  $('img.angstormimage, img.astraimage, img.firestormimage, img.imprudenceimage, img.phoeniximage, img.singularityimage, img.voodooimage, img.zenimage').hover(
+    function() {
+      $(this).stop().animate({"opacity": "1.0"}, "0.5");},
+	function() {
+	  $(this).stop().animate({"opacity": "0.3"}, "0.5");
+  });
+ </script>
