@@ -96,25 +96,7 @@ namespace WhiteCore.Modules.Web
                 return "1";
             }
         }
-
-        int UserTypeToUserFlags(string userType)
-        {
-            switch (userType)
-            {
-            case "Guest":
-                return Constants.USER_FLAG_GUEST;
-            case "Resident":
-                return Constants.USER_FLAG_RESIDENT;
-            case "Member":
-                return Constants.USER_FLAG_MEMBER;
-            case "Contractor":
-                return Constants.USER_FLAG_CONTRACTOR;
-            case "Charter_Member":
-                return Constants.USER_FLAG_CHARTERMEMBER;
-            default:
-                return Constants.USER_FLAG_GUEST;
-            }
-        }
+            
 
         public Dictionary<string, object> Fill(WebInterface webInterface, string filename, OSHttpRequest httpRequest,
                                                OSHttpResponse httpResponse, Dictionary<string, object> requestParameters,
@@ -159,18 +141,21 @@ namespace WhiteCore.Modules.Web
                 string UserDOBMonth = requestParameters["UserDOBMonth"].ToString();
                 string UserDOBDay = requestParameters["UserDOBDay"].ToString();
                 string UserDOBYear = requestParameters["UserDOBYear"].ToString();
-                string UserType = requestParameters ["UserType"].ToString ();
                 string AvatarArchive = requestParameters.ContainsKey("AvatarArchive")
                                            ? requestParameters["AvatarArchive"].ToString()
                                            : "";
                 bool ToSAccept = requestParameters.ContainsKey("ToSAccept") &&
                                  requestParameters["ToSAccept"].ToString() == "Accepted";
 
+                string UserType = requestParameters.ContainsKey("UserType")         // only admins can set membership
+                    ? requestParameters ["UserType"].ToString ()
+                    : "Resident";
+
                 // revise UserDOBMonth to a number
                 UserDOBMonth = ShortMonthToNumber(UserDOBMonth);
 
                 // revise Type flags
-                int UserFlags = UserTypeToUserFlags (UserType);
+                int UserFlags = webInterface.UserTypeToUserFlags (UserType);
 
                 // a bit of idiot proofing
                 if (AvatarName == "")  {
@@ -198,19 +183,25 @@ namespace WhiteCore.Modules.Web
                     UUID userID = UUID.Random();
                     string error = accountService.CreateUser(userID, settings.DefaultScopeID, AvatarName, AvatarPassword,
                                                              UserEmail);
-                    if (error == "")
+                     if (error == "")
                     {
+                        // set the user account type
+                        UserAccount account = accountService.GetUserAccount(null, userID);
+                        account.UserFlags = UserFlags;
+                        accountService.StoreUserAccount (account);
+
+                        // create and save agent info
                         IAgentConnector con = Framework.Utilities.DataManager.RequestPlugin<IAgentConnector>();
                         con.CreateNewAgent(userID);
                         IAgentInfo agent = con.GetAgent(userID);
-                        agent.OtherAgentInformation["RLFirstName"] = FirstName;
-                        agent.OtherAgentInformation["RLLastName"] = LastName;
-                        //agent.OtherAgentInformation["RLAddress"] = UserAddress;
-                        agent.OtherAgentInformation["RLCity"] = UserCity;
-                        //agent.OtherAgentInformation["RLZip"] = UserZip;
-                        agent.OtherAgentInformation["UserDOBMonth"] = UserDOBMonth;
-                        agent.OtherAgentInformation["UserDOBDay"] = UserDOBDay;
-                        agent.OtherAgentInformation["UserDOBYear"] = UserDOBYear;
+                        agent.OtherAgentInformation ["RLFirstName"] = FirstName;
+                        agent.OtherAgentInformation ["RLLastName"] = LastName;
+                        //agent.OtherAgentInformation ["RLAddress"] = UserAddress;
+                        agent.OtherAgentInformation ["RLCity"] = UserCity;
+                        //agent.OtherAgentInformation ["RLZip"] = UserZip;
+                        agent.OtherAgentInformation ["UserDOBMonth"] = UserDOBMonth;
+                        agent.OtherAgentInformation ["UserDOBDay"] = UserDOBDay;
+                        agent.OtherAgentInformation ["UserDOBYear"] = UserDOBYear;
                         agent.OtherAgentInformation ["UserFlags"] = UserFlags;
                         /*if (activationRequired)
                         {
@@ -220,16 +211,20 @@ namespace WhiteCore.Modules.Web
                         }*/
                         con.UpdateAgent(agent);
 
-                        if (AvatarArchive != "")
-                        {
-                            IProfileConnector profileData =
+                        // create user profile details
+                        IProfileConnector profileData =
                                 Framework.Utilities.DataManager.RequestPlugin<IProfileConnector>();
-                            profileData.CreateNewProfile(userID);
+                        if (profileData != null)
+                        {
+                            profileData.CreateNewProfile (userID);
+                            IUserProfileInfo profile = profileData.GetUserProfile (userID);
 
-                            IUserProfileInfo profile = profileData.GetUserProfile(userID);
-                            profile.AArchiveName = AvatarArchive;
+                            if (AvatarArchive != "")
+                                profile.AArchiveName = AvatarArchive;
+
+                            profile.MembershipGroup = webInterface.UserFlagToType (UserFlags, webInterface.EnglishTranslator);    // membership is english
                             profile.IsNewUser = true;
-                            profileData.UpdateUserProfile(profile);
+                            profileData.UpdateUserProfile (profile);
                         }
 
                         response = "<h3>Successfully created account, redirecting to main page</h3>" +
@@ -276,15 +271,8 @@ namespace WhiteCore.Modules.Web
             vars.Add("Months", monthsArgs);
             vars.Add("Years", yearsArgs);
 
-            List<Dictionary<string, object>> userTypeArgs = new List<Dictionary<string, object>>();
-            userTypeArgs.Add(new Dictionary<string, object> {{"Value", translator.GetTranslatedString("Guest")}});
-            userTypeArgs.Add(new Dictionary<string, object> {{"Value", translator.GetTranslatedString("Resident")}});
-            userTypeArgs.Add(new Dictionary<string, object> {{"Value", translator.GetTranslatedString("Member")}});
-            userTypeArgs.Add(new Dictionary<string, object> {{"Value", translator.GetTranslatedString("Contractor")}});
-            userTypeArgs.Add(new Dictionary<string, object> {{"Value", translator.GetTranslatedString("Charter_Member")}});
-
             vars.Add("UserTypeText", translator.GetTranslatedString("UserTypeText"));
-            vars.Add("UserType", userTypeArgs);
+            vars.Add("UserType", webInterface.UserTypeArgs(translator)) ;
 
             List<AvatarArchive> archives = webInterface.Registry.RequestModuleInterface<IAvatarAppearanceArchiver>().GetAvatarArchives();
 
