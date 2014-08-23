@@ -271,10 +271,12 @@ namespace WhiteCore.Framework.ConsoleFramework
                                         {
                                             foreach (CommandDelegate fn in cmd.Value.fn)
                                             {
+                                                cmdList = new List<string> (commandPath);
+                                                cmdList.AddRange (commandOptions);
                                                 if (fn != null)
                                                 {
                                                     foreach (IScene scene in GetScenes(cmd.Value))
-                                                        fn (scene, commandPath);
+                                                        fn (scene, cmdList.ToArray());
                                                 }
                                             }
                                             return new string[0];
@@ -715,6 +717,13 @@ namespace WhiteCore.Framework.ConsoleFramework
             if (ret == String.Empty)
                 ret = defaultresponse;
 
+            // let's be a little smarter here if we can
+            if (options.Count > 0)
+            {
+                foreach (string option in options)
+                    if (option.StartsWith (ret))
+                        ret = option;
+            }
             return ret;
         }
 
@@ -907,6 +916,11 @@ namespace WhiteCore.Framework.ConsoleFramework
         public void CleanInfo(object message)
         {
             OutputNoTime(message.ToString(), Level.Info);
+        }
+
+        public void Ticker()
+        {
+            Console.Write(".");
         }
 
         public void InfoFormat(string format, params object[] args)

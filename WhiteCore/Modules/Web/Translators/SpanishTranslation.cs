@@ -159,6 +159,8 @@
                     return "Region Name";
                 case "RegionTypeText":
                     return "Region Type";
+            case "RegionTerrainText":
+                return "Región Terreno";
                 case "ParcelsInRegionText":
                     return "Parcels In Region";
                 case "ParcelNameText":
@@ -385,15 +387,17 @@
 
                     // Help Page
                 case "HelpText":
-                    return "Help";
+                    return "Ayudar";
                 case "HelpViewersConfigText":
-                    return "Help Viewers Configuration";
-                case "AngstormViewer":
-                    return "Angstorm Viewer";
+                return "Configuración del Visor";
+                case "AngstromViewer":
+                    return "Angstrom Viewer";
                 case "AstraViewer":
                     return "Astra Viewer";
                 case "FirestormViewer":
                     return "Firestorm Viewer";
+                case "KokuaViewer":
+                    return "Kokua Viewer";
                 case "ImprudenceViewer":
                     return "Imprudence Viewer";
                 case "PhoenixViewer":

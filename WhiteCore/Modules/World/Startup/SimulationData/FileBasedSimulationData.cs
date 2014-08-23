@@ -70,6 +70,7 @@ namespace WhiteCore.Modules
         protected IRegionDataLoader _oldRegionLoader;
         protected RegionData _regionData;
         protected Object m_saveLock = new Object();
+        protected string[] m_regionNameSeed;
 
         #region ISimulationDataStore Members
 
@@ -84,6 +85,12 @@ namespace WhiteCore.Modules
         {
             get { return m_saveBackups; }
             set { m_saveBackups = value; }
+        }
+
+        public string BackupFile
+        {
+            get { return m_fileName; }
+            set { m_fileName = value; }
         }
 
         public virtual void CacheDispose()
@@ -116,6 +123,26 @@ namespace WhiteCore.Modules
             return retVals;
         }
 
+        public virtual List<string> FindRegionBackupFiles(string regionName)
+        {
+            if ( (m_oldSaveDirectory == "") || (regionName == null) )
+                return null;
+
+            List<string> allBackups = FindBackupRegionFiles();
+
+            List<string> regionBaks = new List<string>();
+            regionName += "--";                                 // name & timestamp delimiter
+            foreach (string regBak in allBackups)
+            {
+                if (Path.GetFileName (regBak).StartsWith(regionName)) 
+                {
+                    //        MainConsole.Instance.Debug ("Found: " + Path.GetFileNameWithoutExtension (regBak));
+                    regionBaks.Add ( regBak);
+                }
+            }
+            return regionBaks;
+        }
+
         public virtual List<string> FindBackupRegionFiles()
         {
             if (m_oldSaveDirectory == "")
@@ -123,15 +150,28 @@ namespace WhiteCore.Modules
 
             MainConsole.Instance.Info("Looking for sim backups in: "+ m_oldSaveDirectory);
             List<string> archives = new List<string>(Directory.GetFiles(m_oldSaveDirectory, "*.sim", SearchOption.TopDirectoryOnly));
-            //List<string> retVals = new List<string>();
-            //foreach (string r in regions)
-            //    if (Path.GetExtension (r) == ".sim") {
-            //        MainConsole.Instance.Debug ("Found: " + Path.GetFileNameWithoutExtension (r));
-            //        retVals.Add (Path.GetFileNameWithoutExtension (r));
-            //    }
-            //return retVals;
             MainConsole.Instance.InfoFormat ("Found {0} archive files", archives.Count);
+
             return archives;
+        }
+
+        public string GetLastBackupFileName(string regionName)
+        {
+            List<string> backups = FindRegionBackupFiles(regionName);
+            if (backups == null)
+                return "";
+
+            // we have backups.. find the last one...
+            DateTime mostRecent = DateTime.Now.AddDays( -7);
+
+            string lastBackFile = "";
+            foreach(string bak in backups)
+            {
+                if (File.GetLastWriteTime(bak) > mostRecent)
+                    lastBackFile = bak;
+            }
+
+            return lastBackFile;
         }
 
         public virtual RegionInfo CreateNewRegion(ISimulationBase simBase, Dictionary<string, int> currentInfo)
@@ -143,7 +183,7 @@ namespace WhiteCore.Modules
             if (info == null)
                 return CreateNewRegion(simBase,currentInfo);
 
-            m_fileName = info.RegionName;
+            BackupFile = info.RegionName;
             return info;
         }
 
@@ -160,7 +200,7 @@ namespace WhiteCore.Modules
             if (info == null)
                 return CreateNewRegion(simBase, info, currentInfo);
         
-            m_fileName = info.RegionName;
+            BackupFile = info.RegionName;
             return info;
         }
 
@@ -181,7 +221,7 @@ namespace WhiteCore.Modules
             if (regionInfo == null)
                 return CreateNewRegion(simBase, currentInfo );		
             
-			m_fileName = regionInfo.RegionName;
+            BackupFile = regionInfo.RegionName;
             
 			if (m_scene != null)
 			{
@@ -189,7 +229,7 @@ namespace WhiteCore.Modules
 				//Re-register so that if the position has changed, we get the new neighbors
 				gridRegister.RegisterRegionWithGrid(m_scene, true, false, null);
 
-				ForceBackup();
+                ForceBackup();
 
 				MainConsole.Instance.Info("[FileBasedSimulationData]: Save completed.");
 			}
@@ -202,7 +242,7 @@ namespace WhiteCore.Modules
         {
             ReadConfig(simBase);
             ReadBackup(fileName);
-            m_fileName = fileName;
+            BackupFile = fileName;
             return _regionData.RegionInfo;
         }
 
@@ -212,17 +252,17 @@ namespace WhiteCore.Modules
             _regionData = new RegionData();
             _regionData.Init();
 
-            string regionFile = m_storeDirectory + regionName + ".sim";
+            string regionFile = Path.Combine(m_storeDirectory, regionName + ".sim");
             if (File.Exists(regionFile))
             {
                 regionFile = Path.GetFileNameWithoutExtension (regionFile);
                 ReadBackup (regionFile);
-                m_fileName = regionFile;
+                BackupFile = regionFile;
             }
 
             return _regionData.RegionInfo;
         }
-
+            
         /// <summary>
         /// Creates/updates a region from console.
         /// </summary>
@@ -258,20 +298,24 @@ namespace WhiteCore.Modules
             // prompt for user input
             if (prompt)
             {
-                info.RegionName = MainConsole.Instance.Prompt ("Region Name", info.RegionName);
+                Utilities.MarkovNameGenerator rNames = new Utilities.MarkovNameGenerator();
+                string regionName = rNames.FirstName (m_regionNameSeed == null ? Utilities.RegionNames: m_regionNameSeed, 3,7);
+                if (info.RegionName != "")
+                    regionName = info.RegionName;
 
-                // Startup mode
-                string scriptStart = MainConsole.Instance.Prompt (
-                    "Region Startup - Normal or Delayed startup (normal/delay) : ","normal").ToLower();
-                if (scriptStart.StartsWith("n"))
+                do
                 {
-                    info.Startup = StartupType.Normal;
+                    info.RegionName = MainConsole.Instance.Prompt ("Region Name (? for suggestion)", regionName);
+                    if (info.RegionName == "" || info.RegionName == "?")
+                    {
+                        regionName = rNames.NextName;
+                        info.RegionName = "";
+                        continue;
+                    }
                 }
-                else
-                {
-                    info.Startup = StartupType.Medium;
-                }
-                
+                while (info.RegionName == "");
+                rNames.Reset();
+
                 info.RegionLocX =
                     int.Parse (MainConsole.Instance.Prompt ("Region Location X",
                     ((info.RegionLocX == 0 
@@ -286,25 +330,145 @@ namespace WhiteCore.Modules
             
                 info.RegionSizeX = int.Parse (MainConsole.Instance.Prompt ("Region size X", info.RegionSizeX.ToString ()));
                 info.RegionSizeY = int.Parse (MainConsole.Instance.Prompt ("Region size Y", info.RegionSizeY.ToString ()));
-            
-                info.RegionPort = int.Parse (MainConsole.Instance.Prompt ("Region Port", info.RegionPort.ToString ()));
-            
-                info.RegionType = MainConsole.Instance.Prompt ("Region Type (Flatland/Mainland/Island)",
-                    (info.RegionType == "" ? "Flatland" : info.RegionType));
-                    
-                info.SeeIntoThisSimFromNeighbor =  MainConsole.Instance.Prompt (
-                    "See into this sim from neighbors (yes/no)",
-                    info.SeeIntoThisSimFromNeighbor ? "yes" : "no").ToLower() == "yes";
+ 
+                // * Mainland / Full Region (Private)
+                // * Mainland / Homestead
+                // * Mainland / Openspace
+                //
+                // * Estate / Full Region   (Private)
+                //
+                info.RegionType = MainConsole.Instance.Prompt ("Region Type (Mainland/Estate)",
+                    (info.RegionType == "" ? "Estate" : info.RegionType));
 
-                info.InfiniteRegion = MainConsole.Instance.Prompt (
-                    "Make an infinite region (yes/no)",
-                    info.InfiniteRegion ? "yes" : "no").ToLower () == "yes";
-            
-                info.ObjectCapacity =
-                    int.Parse (MainConsole.Instance.Prompt ("Object capacity",
-                    info.ObjectCapacity == 0
-                                           ? "50000"
-                                           : info.ObjectCapacity.ToString ()));
+                // Region presets or advanced setup
+                string setupMode;                             
+                string terrainWater = "Aquatic";                             
+                string terrainFull = "Grassland";
+                var responses = new List<string>();
+                if (info.RegionType.ToLower().StartsWith("m"))
+                {
+                    // Mainland regions
+                    info.RegionType = "Mainland / ";                   
+                    responses.Add("Full Region");
+                    responses.Add("Homestead");
+                    responses.Add ("Openspace");
+                    responses.Add ("Whitecore");                            // TODO: remove?
+                    responses.Add ("Custom");                               
+                    setupMode = MainConsole.Instance.Prompt("Mainland region type?", "Full Region", responses).ToLower ();
+
+                    // allow specifying terrain for Openspace
+                    if (setupMode.StartsWith("o"))
+                        terrainWater = MainConsole.Instance.Prompt("Openspace terrain (Aquatic / Land)?","Aquatic").ToLower();
+
+                } else
+                {
+                    // Estate regions
+                    info.RegionType = "Estate / ";                   
+                    responses.Add("Full Region");
+                    responses.Add ("Whitecore");                            // TODO: WhiteCore 'standard' setup, rename??
+                    responses.Add ("Custom");
+                    setupMode = MainConsole.Instance.Prompt("Estate region type?","Full Region", responses).ToLower();
+                }
+
+                // terrain can be specified for Full regions
+                if (setupMode.StartsWith ("f") || setupMode.StartsWith ("c"))
+                {
+                    var tresp = new List<string>();
+                    tresp.Add ("Flatland");
+                    tresp.Add ("Grassland");
+                    tresp.Add ("Island");
+                    tresp.Add ("Aquatic");
+                    string tscape = MainConsole.Instance.Prompt ("Terrain Type?", terrainFull,tresp);
+                    terrainFull = tscape;
+                    // TODO: This would be where we allow selection of preset terrain files
+                }
+
+                if (setupMode.StartsWith("c"))
+                {
+                    info.RegionPort = int.Parse (MainConsole.Instance.Prompt ("Region Port", info.RegionPort.ToString ()));
+                    info.RegionTerrain = terrainFull;
+
+                    // Startup mode
+                    string scriptStart = MainConsole.Instance.Prompt (
+                        "Region Startup - Normal or Delayed startup (normal/delay) : ","normal").ToLower();
+                    info.Startup = scriptStart.StartsWith ("n") ? StartupType.Normal : StartupType.Medium;
+                              
+                    info.SeeIntoThisSimFromNeighbor =  MainConsole.Instance.Prompt (
+                        "See into this sim from neighbors (yes/no)",
+                        info.SeeIntoThisSimFromNeighbor ? "yes" : "no").ToLower() == "yes";
+
+                    info.InfiniteRegion = MainConsole.Instance.Prompt (
+                        "Make an infinite region (yes/no)",
+                        info.InfiniteRegion ? "yes" : "no").ToLower () == "yes";
+                
+                    info.ObjectCapacity =
+                        int.Parse (MainConsole.Instance.Prompt ("Object capacity",
+                        info.ObjectCapacity == 0
+                                               ? "50000"
+                                               : info.ObjectCapacity.ToString ()));
+                } 
+
+                if (setupMode.StartsWith("w"))
+                {
+                    // 'standard' setup
+                    info.RegionType = info.RegionType + "Whitecore";                   
+                    //info.RegionPort;            // use auto assigned port
+                    info.RegionTerrain = "Flatland";
+                    info.Startup = StartupType.Normal;
+                    info.SeeIntoThisSimFromNeighbor = true;
+                    info.InfiniteRegion = false;
+                    info.ObjectCapacity = 50000;
+
+                }
+                if (setupMode.StartsWith("o"))       
+                {
+                    // 'Openspace' setup
+                    info.RegionType = info.RegionType + "Openspace";                   
+                    //info.RegionPort;            // use auto assigned port
+                    if (terrainWater.StartsWith("a"))
+                        info.RegionTerrain = "Aquatic";
+                    else
+                        info.RegionTerrain = "Grassland";
+                    info.Startup = StartupType.Medium;
+                    info.SeeIntoThisSimFromNeighbor = true;
+                    info.InfiniteRegion = false;
+                    info.ObjectCapacity = 750;
+                    info.RegionSettings.AgentLimit = 10;
+                    info.RegionSettings.AllowLandJoinDivide = false;
+                    info.RegionSettings.AllowLandResell = false;
+                                   }
+                if (setupMode.StartsWith("h"))       
+                {
+                    // 'Homestead' setup
+                    info.RegionType = info.RegionType + "Homestead";                   
+                    //info.RegionPort;            // use auto assigned port
+                    info.RegionTerrain = "Homestead";
+                    info.Startup = StartupType.Medium;
+                    info.SeeIntoThisSimFromNeighbor = true;
+                    info.InfiniteRegion = false;
+                    info.ObjectCapacity = 3750;
+                    info.RegionSettings.AgentLimit = 20;
+                    info.RegionSettings.AllowLandJoinDivide = false;
+                    info.RegionSettings.AllowLandResell = false;
+                }
+
+                if (setupMode.StartsWith("f"))       
+                {
+                    // 'Full Region' setup
+                    info.RegionType = info.RegionType + "Full Region";                   
+                    //info.RegionPort;            // use auto assigned port
+                    info.RegionTerrain = terrainFull;
+                    info.Startup = StartupType.Normal;
+                    info.SeeIntoThisSimFromNeighbor = true;
+                    info.InfiniteRegion = false;
+                    info.ObjectCapacity = 15000;
+                    info.RegionSettings.AgentLimit = 100;
+                    if (info.RegionType.StartsWith ("M"))                           // defaults are 'true'
+                    {
+                        info.RegionSettings.AllowLandJoinDivide = false;
+                        info.RegionSettings.AllowLandResell = false;
+                    }
+                }
 
             }
 
@@ -320,9 +484,18 @@ namespace WhiteCore.Modules
                 if (es != null)
                     es.sendRegionHandshakeToAll ();
 
-                ForceBackup();
+                // in case we have changed the name
+                if (m_scene.SimulationDataService.BackupFile != info.RegionName)
+                {
+                    string oldFile = BuildSaveFileName (m_scene.SimulationDataService.BackupFile);
+                    if (File.Exists (oldFile))
+                        File.Delete (oldFile);
+                    m_scene.SimulationDataService.BackupFile = info.RegionName;       
+                }
 
-                MainConsole.Instance.Info("[FileBasedSimulationData]: Save completed.");
+                m_scene.SimulationDataService.ForceBackup();
+
+                MainConsole.Instance.InfoFormat("[FileBasedSimulationData]: Save of {0} completed.",info.RegionName);
             }
 
             return info;
@@ -337,6 +510,7 @@ namespace WhiteCore.Modules
                 MainConsole.Instance.Commands.AddCommand("update region info", "update region info",
                     "Updates the region settings",
                     UpdateRegionInfo, true, true);
+
             if (!MainConsole.Instance.Commands.ContainsCommand("delete sim backups"))
                 MainConsole.Instance.Commands.AddCommand(
                     "delete sim backups",
@@ -357,7 +531,9 @@ namespace WhiteCore.Modules
             if (MainConsole.Instance.ConsoleScene != null)
             {
                 m_scene = scene;
-                MainConsole.Instance.ConsoleScene.RegionInfo = CreateRegionFromConsole(MainConsole.Instance.ConsoleScene.RegionInfo, true, null);
+                var currentInfo = scene.RegionInfo;
+                MainConsole.Instance.ConsoleScene.RegionInfo = CreateRegionFromConsole(currentInfo, true, null);
+                MainConsole.Instance.DefaultPrompt = MainConsole.Instance.ConsoleScene.RegionInfo.RegionName+": ";
             }
         }
 
@@ -379,6 +555,54 @@ namespace WhiteCore.Modules
 
         }
 
+        /// <summary>
+        /// Restores the last backup.
+        /// </summary>
+        /// <returns><c>true</c>, if last backup was restored, <c>false</c> otherwise.</returns>
+        /// <param name="regionName">Region name.</param>
+        public bool RestoreLastBackup(string regionName)
+        {
+            string lastBackFile = GetLastBackupFileName (regionName);
+            if ( lastBackFile != "")
+            {
+                string regionFile = (m_storeDirectory == null) 
+                    ? regionName + ".sim"
+                    : Path.Combine(m_storeDirectory, regionName + ".sim");
+
+                if (File.Exists(regionFile))
+                    File.Delete(regionFile);
+
+                // now we can copy it over...
+                File.Copy(lastBackFile, regionFile);
+
+                return true; 
+            }
+
+            return false;
+        }
+
+        public bool RestoreBackupFile(string fileName, string regionName)
+        {
+            if ( fileName != "")
+            {
+                string regionFile = (m_storeDirectory == null) 
+                    ? regionName + ".sim"
+                    : Path.Combine(m_storeDirectory, regionName + ".sim");
+
+                if (File.Exists(regionFile))
+                    File.Delete(regionFile);
+
+                // now we can copy it over...
+                File.Copy(fileName, regionFile);
+
+                return true; 
+
+            }
+
+            return false;
+        }
+
+            
         public virtual List<ISceneEntity> LoadObjects()
         {
             return _regionData.Groups.ConvertAll<ISceneEntity>(o => o);
@@ -499,7 +723,7 @@ namespace WhiteCore.Modules
                 m_timeBetweenSaves = config.GetInt("TimeBetweenSaves", m_timeBetweenSaves);
                 m_keepOldSave = config.GetBoolean("SavePreviousBackup", m_keepOldSave);
 
-                // directories are referneces from the bin directory
+                // directories are references from the bin directory
                 // As of V0.9.2 the data is saved relative to the bin dirs
                 m_oldSaveDirectory =
                     PathHelpers.ComputeFullPath(config.GetString("PreviousBackupDirectory", m_oldSaveDirectory));
@@ -519,6 +743,9 @@ namespace WhiteCore.Modules
                 if (!Directory.Exists(m_oldSaveDirectory))
                     Directory.CreateDirectory(m_oldSaveDirectory);
 
+                string regionNameSeed = config.GetString("RegionNameSeed", "");
+                if (regionNameSeed != "")
+                    m_regionNameSeed = regionNameSeed.Split (',');
 
                 m_saveBackupChanges = config.GetBoolean("SaveTimedPreviousBackup", m_keepOldSave);
                 m_timeBetweenBackupSaves = config.GetInt("TimeBetweenBackupSaves", m_timeBetweenBackupSaves);
@@ -674,7 +901,7 @@ namespace WhiteCore.Modules
                 MainConsole.Instance.WarnFormat("[Backup]: Exception caught: {0}", ex);
             }
 
-            MainConsole.Instance.Info("[FileBasedSimulationData]: Saving backup for region " +
+            MainConsole.Instance.Info("[FileBasedSimulationData]: Backing up " +
                                       m_scene.RegionInfo.RegionName);
 
             RegionData regiondata = new RegionData();
@@ -751,7 +978,14 @@ namespace WhiteCore.Modules
                     m_oldSaveHasBeenSaved = true;
                     if (!Directory.Exists(m_oldSaveDirectory))
                         Directory.CreateDirectory(m_oldSaveDirectory);
-                    File.Copy(filename, BuildOldSaveFileName());
+
+                    // need to check if backup file already exists as well (eg. save within the minute timeframe)
+                    string oldfileName = BuildOldSaveFileName ();
+                    if (File.Exists(oldfileName))
+                        File.Delete(oldfileName);
+                     
+                    // now we can copy it over...
+                    File.Copy(filename, oldfileName );
                 }
             }
             regiondata.Dispose();
@@ -772,9 +1006,18 @@ namespace WhiteCore.Modules
             //return (m_storeDirectory == "" || m_storeDirectory == "/")
             // the'/' diretcory is valid an someone might use it to store backups so don't
             // fudge it to mean './' ... as it previously was...
+
+            var name = BackupFile;
             return (m_storeDirectory == "")
-                       ? m_fileName + ".sim"
-                       : Path.Combine(m_storeDirectory, m_fileName + ".sim");
+                       ? name + ".sim"
+                       : Path.Combine(m_storeDirectory, name + ".sim");
+        }
+
+        private string BuildSaveFileName( string name)
+        {
+            return (m_storeDirectory == "")
+                ? name + ".sim"
+                    : Path.Combine(m_storeDirectory, name + ".sim");
         }
 
         private byte[] WriteTerrainToStream(ITerrainChannel tModule)
@@ -792,7 +1035,7 @@ namespace WhiteCore.Modules
 
         protected virtual void ReadBackup(string fileName)
         {
-            m_fileName = fileName;
+            BackupFile = fileName;
             string simName = Path.GetFileName(fileName); 
             MainConsole.Instance.Info("[FileBasedSimulationData]: Restoring sim backup for region " + simName + "...");
 
@@ -843,7 +1086,7 @@ namespace WhiteCore.Modules
 
         RegionData LoadBackup(string file);
 
-        bool SaveBackup(string m_fileName, RegionData regiondata);
+        bool SaveBackup(string fileName, RegionData regiondata);
     }
 
     [Serializable, ProtoBuf.ProtoContract()]

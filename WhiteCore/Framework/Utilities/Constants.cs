@@ -37,6 +37,9 @@ namespace WhiteCore.Framework.Utilities
         public const string DEFAULT_ASSETCACHE_DIR = DEFAULT_DATA_DIR+"/AssetCache";
         public const string DEFAULT_SCRIPTENGINE_DIR = DEFAULT_DATA_DIR+"/ScriptEngines";
         public const string DEFAULT_FILEASSETS_DIR = DEFAULT_DATA_DIR+"/FileAssets";
+        public const string DEFAULT_AVATARARCHIVE_DIR = DEFAULT_DATA_DIR+"/AvatarArchives";
+        public const string DEFAULT_OARARCHIVE_DIR = DEFAULT_DATA_DIR + "/OarFiles";
+        public const string DEFAULT_USERINVENTORY_DIR = DEFAULT_DATA_DIR+"/UserArchives";
 
         public const int RegionSize = 256;
         public const int RegionHeight = 10000;
@@ -51,6 +54,7 @@ namespace WhiteCore.Framework.Utilities
 		public const string RealEstateOwnerUUID = "3d6181b0-6a4b-97ef-18d8-722652995cf1";
 		public const string RealEstateOwnerName = "RealEstate Owner";
         public const string SystemEstateName = "WhiteCore Estate";
+        public const int SystemEstateID = 1;
 
 		public const string RealEstateGroupUUID = "dc7b21cd-3c89-fcaa-31c8-25f9ffd224cd";
 		public const string RealEstateGroupName = "Maintenance";

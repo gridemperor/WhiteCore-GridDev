@@ -157,6 +157,8 @@
                     return "Nome della Regione";
                 case "RegionTypeText":
                     return "Tipo della Regione";
+            case "RegionTerrainText":
+                return "Regione Terrain";
                 case "ParcelsInRegionText":
                     return "Terreni della Regione";
                 case "ParcelNameText":
@@ -385,13 +387,15 @@
                 case "HelpText":
                     return "Aiuto";
                 case "HelpViewersConfigText":
-                    return "Aiuto per la configurazione dei Viewers";
-                case "AngstormViewer":
-                    return "Angstorm Viewer";
+                    return "Configurazione Viewer";
+                case "AngstromViewer":
+                    return "Angstrom Viewer";
                 case "AstraViewer":
                     return "Astra Viewer";
                 case "FirestormViewer":
                     return "Firestorm Viewer";
+                case "KokuaViewer":
+                    return "Kokua Viewer";
                 case "ImprudenceViewer":
                     return "Imprudence Viewer";
                 case "PhoenixViewer":

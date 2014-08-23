@@ -46,7 +46,7 @@ using OpenMetaverse;
 namespace WhiteCore.Region
 {
     /// <summary>
-    ///     Manager for adding, closing, reseting, and restarting scenes.
+    ///     Manager for adding, closing, resetting, and restarting scenes.
     /// </summary>
     public class SceneManager : ISceneManager, IApplicationPlugin
     {
@@ -66,7 +66,7 @@ namespace WhiteCore.Region
         public event NewScene OnAddedScene;
         public event NewScene OnFinishedAddingScene;
 
-        protected ISimulationBase m_OpenSimBase;
+        protected ISimulationBase m_SimBase;
         protected List<IScene> m_scenes = new List<IScene>();
 
         public List<IScene> Scenes { get { return m_scenes; } }
@@ -75,6 +75,7 @@ namespace WhiteCore.Region
         protected ISimulationDataStore m_selectedDataService;
 
         private IConfigSource m_config = null;
+        private DateTime m_startupTime;
 
         public IConfigSource ConfigSource
         {
@@ -87,7 +88,8 @@ namespace WhiteCore.Region
 
         public void PreStartup(ISimulationBase simBase)
         {
-            m_OpenSimBase = simBase;
+            m_SimBase = simBase;
+            m_startupTime = simBase.StartupTime;
 
             IConfig handlerConfig = simBase.ConfigSource.Configs["ApplicationPlugins"];
             if (handlerConfig.GetString("SceneManager", "") != Name)
@@ -95,7 +97,7 @@ namespace WhiteCore.Region
 
             m_config = simBase.ConfigSource;
             //Register us!
-            m_OpenSimBase.ApplicationRegistry.RegisterModuleInterface<ISceneManager>(this);
+            m_SimBase.ApplicationRegistry.RegisterModuleInterface<ISceneManager>(this);
         }
 
         public void Initialize(ISimulationBase simBase)
@@ -167,7 +169,7 @@ namespace WhiteCore.Region
 
             bool newRegion = false;
             StartRegions(out newRegion);
-            MainConsole.Instance.DefaultPrompt = "Region [root]";
+            SetRegionPrompt("root");
             if (newRegion) //Save the new info
             {
                 foreach (ISimulationDataStore store in m_simulationDataServices)
@@ -192,6 +194,11 @@ namespace WhiteCore.Region
                 CloseRegion(scene, ShutdownType.Immediate, 0);
         }
 
+        public void SetRegionPrompt(string region)
+        {
+            MainConsole.Instance.DefaultPrompt = region+ ": ";
+        }
+
         #endregion
 
         #region Startup complete
@@ -200,13 +207,19 @@ namespace WhiteCore.Region
         {
             //Tell modules about it 
             StartupCompleteModules();
-            m_OpenSimBase.RunStartupCommands();
+            m_SimBase.RunStartupCommands();
 
-            TimeSpan timeTaken = DateTime.Now - m_OpenSimBase.StartupTime;
+            TimeSpan timeTaken;
+            if (m_startupTime == m_SimBase.StartupTime)
+               timeTaken = DateTime.Now - m_SimBase.StartupTime;    // this is the time since the sim started
+            else
+               timeTaken = DateTime.Now - m_startupTime;            // time for a restart etc
 
             MainConsole.Instance.InfoFormat(
                 "[SceneManager]: Startup Complete. This took {0}m {1}.{2}s",
                 timeTaken.Minutes, timeTaken.Seconds, timeTaken.Milliseconds);
+
+            m_startupTime = m_SimBase.StartupTime;                  // finished this timing period
 
             WhiteCoreModuleLoader.ClearCache();
             // In 99.9% of cases it is a bad idea to manually force garbage collection. However,
@@ -222,13 +235,13 @@ namespace WhiteCore.Region
         public void StartRegions(out bool newRegion)
         {
             List<KeyValuePair<ISimulationDataStore, RegionInfo>> regions = new List<KeyValuePair<ISimulationDataStore, RegionInfo>>();
-            List<string> regionFiles = m_selectedDataService.FindRegionInfos(out newRegion, m_OpenSimBase);
+            List<string> regionFiles = m_selectedDataService.FindRegionInfos(out newRegion, m_SimBase);
             if (newRegion)
             {
                 var currentInfo = FindCurrentRegionInfo ();
 
                 ISimulationDataStore store = m_selectedDataService.Copy();
-                regions.Add(new KeyValuePair<ISimulationDataStore, RegionInfo>(store, store.CreateNewRegion(m_OpenSimBase, currentInfo)));
+                regions.Add(new KeyValuePair<ISimulationDataStore, RegionInfo>(store, store.CreateNewRegion(m_SimBase, currentInfo)));
             }
             else
             {
@@ -236,7 +249,7 @@ namespace WhiteCore.Region
                 {
                     ISimulationDataStore store = m_selectedDataService.Copy();
                     regions.Add(new KeyValuePair<ISimulationDataStore, RegionInfo>(store, 
-                        store.LoadRegionInfo(fileName, m_OpenSimBase)));
+                        store.LoadRegionInfo(fileName, m_SimBase)));
                 }
             }
 
@@ -249,7 +262,7 @@ namespace WhiteCore.Region
             MainConsole.Instance.InfoFormat("[SceneManager]: Starting region \"{0}\" at @ {1},{2}",
                                             regionInfo.RegionName,
                                             regionInfo.RegionLocX/256, regionInfo.RegionLocY/256);
-            ISceneLoader sceneLoader = m_OpenSimBase.ApplicationRegistry.RequestModuleInterface<ISceneLoader>();
+            ISceneLoader sceneLoader = m_SimBase.ApplicationRegistry.RequestModuleInterface<ISceneLoader>();
             if (sceneLoader == null)
                 throw new Exception("No Scene Loader Interface!");
 
@@ -309,7 +322,7 @@ namespace WhiteCore.Region
         {
             // change back to the root as we are going to trash this one
             MainConsole.Instance.ConsoleScene = null;
-            MainConsole.Instance.DefaultPrompt = "Region [root]";
+            SetRegionPrompt("root");
 
             m_scenes.Remove (scene);
             MainConsole.Instance.ConsoleScenes = m_scenes;
@@ -321,9 +334,10 @@ namespace WhiteCore.Region
             MainConsole.Instance.Warn("[SceneManager]: Region " + scene.RegionInfo.RegionName + " was removed\n"+
                 "To ensure all data is correct, you should consider restarting the simulator");
 
-            if (MainConsole.Instance.Prompt ("[SceneManager]: Do you wish to restart? (yes/no)", "no") == "yes")
+            if (MainConsole.Instance.Prompt ("[SceneManager]: Do you wish to shutdown the systemn? (yes/no)", "no") == "yes")
             {
-                System.Threading.Thread.Sleep (10000);
+                MainConsole.Instance.Warn ("[SceneManager]: Shutting down in 5 seconds");
+                System.Threading.Thread.Sleep (5000);
                 Environment.Exit (0);
             }
         }
@@ -334,12 +348,12 @@ namespace WhiteCore.Region
 
         public void RestartRegion(IScene scene)
         {
-            // save current info for later
-            string regionName = scene.RegionInfo.RegionName;
+            m_startupTime = DateTime.Now;                           // for more meaningful startup times
+            string regionName = scene.RegionInfo.RegionName;        // save current info for later
 
             // change back to the root as we are going to trash this one
             MainConsole.Instance.ConsoleScene = null;
-            MainConsole.Instance.DefaultPrompt = "Region [root]";
+            SetRegionPrompt("root");
 
             // close and clean up a bit
             CloseRegion(scene, ShutdownType.Immediate, 0);
@@ -349,16 +363,16 @@ namespace WhiteCore.Region
             IConfig startupConfig = m_config.Configs["Startup"];
             if (startupConfig == null || !startupConfig.GetBoolean ("RegionRestartCausesShutdown", false))
             {
-                RegionInfo region = m_selectedDataService.LoadRegionNameInfo (regionName, m_OpenSimBase);
+                RegionInfo region = m_selectedDataService.LoadRegionNameInfo (regionName, m_SimBase);
 
-                //StartRegion(scene.SimulationDataService, scene.RegionInfo);
                 StartRegion (m_selectedDataService, region);
-                MainConsole.Instance.Info ("[SceneManager]: " + regionName + "has been restarted");
+                MainConsole.Instance.Info ("[SceneManager]: " + regionName + " has been restarted");
             }
             else
             {
                 //Kill us now
-                m_OpenSimBase.Shutdown(true);
+                MainConsole.Instance.Warn ("[SceneManager]: Shutting down as per [Startup] configuration");
+                m_SimBase.Shutdown(true);
             }
         }
 
@@ -424,7 +438,7 @@ namespace WhiteCore.Region
             var regions = new List<KeyValuePair<ISimulationDataStore, RegionInfo>> ();
             ISimulationDataStore store = m_selectedDataService.Copy ();
 
-            regions.Add (new KeyValuePair<ISimulationDataStore, RegionInfo> (store, store.CreateNewRegion (m_OpenSimBase, regionInfo, currentInfo)));
+            regions.Add (new KeyValuePair<ISimulationDataStore, RegionInfo> (store, store.CreateNewRegion (m_SimBase, regionInfo, currentInfo)));
             StartRegion (store, regionInfo);
 
         }
@@ -440,12 +454,12 @@ namespace WhiteCore.Region
             //First, Initialize the SharedRegionStartupModule
             foreach (ISharedRegionStartupModule module in m_startupPlugins)
             {
-                module.Initialise(scene, m_config, m_OpenSimBase);
+                module.Initialise(scene, m_config, m_SimBase);
             }
             //Then do the ISharedRegionModule and INonSharedRegionModules
             MainConsole.Instance.Debug("[Modules]: Loading region modules");
             IRegionModulesController controller;
-            if (m_OpenSimBase.ApplicationRegistry.TryRequestModuleInterface(out controller))
+            if (m_SimBase.ApplicationRegistry.TryRequestModuleInterface(out controller))
             {
                 controller.AddRegionToModules(scene);
             }
@@ -454,15 +468,15 @@ namespace WhiteCore.Region
             //Then finish the rest of the SharedRegionStartupModules
             foreach (ISharedRegionStartupModule module in m_startupPlugins)
             {
-                module.PostInitialise(scene, m_config, m_OpenSimBase);
+                module.PostInitialise(scene, m_config, m_SimBase);
             }
             foreach (ISharedRegionStartupModule module in m_startupPlugins)
             {
-                module.FinishStartup(scene, m_config, m_OpenSimBase);
+                module.FinishStartup(scene, m_config, m_SimBase);
             }
             foreach (ISharedRegionStartupModule module in m_startupPlugins)
             {
-                module.PostFinishStartup(scene, m_config, m_OpenSimBase);
+                module.PostFinishStartup(scene, m_config, m_SimBase);
             }
         }
 
@@ -484,7 +498,7 @@ namespace WhiteCore.Region
         protected void CloseModules(IScene scene)
         {
             IRegionModulesController controller;
-            if (m_OpenSimBase.ApplicationRegistry.TryRequestModuleInterface(out controller))
+            if (m_SimBase.ApplicationRegistry.TryRequestModuleInterface(out controller))
                 controller.RemoveRegionFromModules(scene);
 
             foreach (ISharedRegionStartupModule module in m_startupPlugins)
@@ -545,10 +559,11 @@ namespace WhiteCore.Region
                 Debug, true, false);
 
             MainConsole.Instance.Commands.AddCommand("load oar",
-                "load oar [oar name] [--merge] [--skip-assets] [--OffsetX=#] [--OffsetY=#] [--OffsetZ=#] [--FlipX] [--FlipY] [--UseParcelOwnership] [--CheckOwnership]",
+                "load oar [OAR filename] [--merge] [--skip-assets] [--skip-terrain] [--OffsetX=#] [--OffsetY=#] [--OffsetZ=#] [--FlipX] [--FlipY] [--UseParcelOwnership] [--CheckOwnership]",
                 "Load a region's data from OAR archive.  \n" +
                 "--merge will merge the oar with the existing scene (including parcels).  \n" +
                 "--skip-assets will load the oar but ignore the assets it contains. \n" +
+                "--skip-terrain will skip loading the oar terrain. \n" +
                 "--OffsetX will change where the X location of the oar is loaded, and the same for Y and Z.  \n" +
                 "--FlipX flips the region on the X axis.  \n" +
                 "--FlipY flips the region on the Y axis.  \n" +
@@ -556,21 +571,21 @@ namespace WhiteCore.Region
                 "      the Estate Owner to the parcel owner on which the object is found.  \n" +
                 "--CheckOwnership asks for each UUID that is not found on the grid what user it should be changed\n" +
                 "      to (useful for changing UUIDs from other grids, but very long with many users).  ",
-                HandleLoadOar, true, false);
+                HandleLoadOar, true, true);
 
             MainConsole.Instance.Commands.AddCommand("save oar",
-                "save oar [<OAR path>] [--perm=<permissions>] ",
+                "save oar [<OAR filename>] [--perm=<permissions>] ",
                 "Save a region's data to an OAR archive" + Environment.NewLine +
-                "<OAR path> The OAR path must be a filesystem path." +
-                "  If this is not given then the oar is saved to region.oar in the current directory." + Environment.NewLine +
+                "<OAR filename> The file name (and optional path) to use when saveing the archive." +
+                "  If this is not given then the oar is saved to the 'region name' in the 'Data/Region/OarFiles' folder." + Environment.NewLine +
                 "--perm stops objects with insufficient permissions from being saved to the OAR." + Environment.NewLine +
                 "  <permissions> can contain one or more of these characters: \"C\" = Copy, \"T\" = Transfer" + Environment.NewLine,
-                HandleSaveOar, true, false);
+                HandleSaveOar, true, true);
 
             MainConsole.Instance.Commands.AddCommand("kick user", 
                 "kick user [all]",
                 "Kick a user off the simulator",
-                KickUserCommand, true, false);
+                KickUserCommand, true, true);
 
             MainConsole.Instance.Commands.AddCommand("restart-instance",
                 "restart-instance",
@@ -603,24 +618,24 @@ namespace WhiteCore.Region
                 HandleShowRegions, true, false);
 
             MainConsole.Instance.Commands.AddCommand("reset region",
-                "reset region",
+                "reset region [RegionName]",
                 "Reset region to the default terrain, wipe all prims, etc.",
-                RunCommand, true, false);
-
-            MainConsole.Instance.Commands.AddCommand("clear region",
-                "clear region",
-                "Clear region of all objects leaving the current terrain.",
-                RunCommand, true, true);
+                HandleResetRegion, false, true);
 
             MainConsole.Instance.Commands.AddCommand("remove region", 
-                "remove region",
+                "remove region [RegionName]",
                 "Remove region from the grid, and delete all info associated with it",
-                RunCommand, true, false);
+                HandleDeleteRegion, false, true);
+
+            MainConsole.Instance.Commands.AddCommand("load region backup", 
+                "load region backup [FileName]",
+                "load a region from a previous backup file",
+                HandleReloadRegion, false, true);
 
             MainConsole.Instance.Commands.AddCommand("delete region", 
-                "delete region (alias for 'remove region')",
+                "delete region  [RegionName] (alias for 'remove region')",
                 "Remove region from the grid, and delete all info associated with it",
-                RunCommand, true, false);
+                HandleDeleteRegion, false, true);
 
             MainConsole.Instance.Commands.AddCommand("create region", 
                 "create region <Region Name>  <--config=filename>",
@@ -735,7 +750,7 @@ namespace WhiteCore.Region
             else
             {
                 ISimulationDataStore store = m_selectedDataService.Copy ();
-                var newRegion = store.CreateNewRegion (m_OpenSimBase, currentInfo);
+                var newRegion = store.CreateNewRegion (m_SimBase, currentInfo);
 
                 if (newRegion.RegionName != "abort")
                 {
@@ -759,9 +774,9 @@ namespace WhiteCore.Region
 
             // modified to pass a region name to use
             ISimulationDataStore store = m_selectedDataService.Copy ();
-            //StartRegion (store, store.CreateNewRegion (m_OpenSimBase, regionName, currentInfo));
+            //StartRegion (store, store.CreateNewRegion (m_SimBase, regionName, currentInfo));
 
-            var newRegion = store.CreateNewRegion (m_OpenSimBase, regionName, currentInfo);
+            var newRegion = store.CreateNewRegion (m_SimBase, regionName, currentInfo);
             if (newRegion.RegionName != "abort")
             {
                 StartRegion (store, newRegion);
@@ -849,7 +864,7 @@ namespace WhiteCore.Region
             ISimulationDataStore store = m_selectedDataService.Copy ();
             //StartRegion (store, store.CreateNewRegion (m_OpenSimBase, newRegion, currentInfo));
 
-            var newRegion = store.CreateNewRegion (m_OpenSimBase, loadRegion, currentInfo);
+            var newRegion = store.CreateNewRegion (m_SimBase, loadRegion, currentInfo);
             if (newRegion.RegionName != "abort")
             {
                 StartRegion (store, newRegion);
@@ -883,22 +898,18 @@ namespace WhiteCore.Region
             if (cmd.Count () > 4)
             {
                 regionFile = cmd [3];
-
-                if (PathHelpers.VerifySaveFile (regionFile, ".xml", regionsDir) == "")        // filename is not kocher
-                  return;
-
-                // verify path details
-                if (!Path.IsPathRooted (regionFile))
-                    regionFile = Path.Combine (regionsDir, regionFile);
+                regionFile = PathHelpers.VerifyWriteFile (regionFile, ".xml", regionsDir, false);
             }
 
             // let's do it
-            if (regionFile == "")
-                regionFile = Path.Combine( regionsDir, scene.RegionInfo.RegionName + ".xml");
+            if (regionFile != "")
+            {
+//                regionFile = Path.Combine( regionsDir, scene.RegionInfo.RegionName + ".xml");
 
-            MainConsole.Instance.InfoFormat("[SceneManager]: Saving region configuration for {0} to {1} ...", 
-                                                scene.RegionInfo.RegionName, regionFile);
-            scene.RegionInfo.SaveRegionConfig( regionFile );
+                MainConsole.Instance.InfoFormat ("[SceneManager]: Saving region configuration for {0} to {1} ...", 
+                    scene.RegionInfo.RegionName, regionFile);
+                scene.RegionInfo.SaveRegionConfig (regionFile);
+            }
 
          }
 
@@ -991,7 +1002,7 @@ namespace WhiteCore.Region
             string[] cmdparams = args.ToArray();
 
             IRegionModulesController controller =
-                m_OpenSimBase.ApplicationRegistry.RequestModuleInterface<IRegionModulesController>();
+                m_SimBase.ApplicationRegistry.RequestModuleInterface<IRegionModulesController>();
             if (cmdparams.Length > 1)
             {
                 foreach (IRegionModuleBase irm in controller.AllModules)
@@ -1016,7 +1027,7 @@ namespace WhiteCore.Region
             args.RemoveAt(0);
 
             IRegionModulesController controller =
-                m_OpenSimBase.ApplicationRegistry.RequestModuleInterface<IRegionModulesController>();
+                m_SimBase.ApplicationRegistry.RequestModuleInterface<IRegionModulesController>();
             foreach (IRegionModuleBase irm in controller.AllModules)
             {
                 if (irm is INonSharedRegionModule)
@@ -1033,6 +1044,7 @@ namespace WhiteCore.Region
         /// <param name="cmdparams">Additional arguments passed to the command</param>
         private void RunCommand(IScene scene, string[] cmdparams)
         {
+            // TODO: Fix this so that additional commandline details can be passed
             if ( (MainConsole.Instance.ConsoleScene == null) &&
                 (m_scenes.IndexOf(scene) == 0) )
             {
@@ -1086,7 +1098,7 @@ namespace WhiteCore.Region
                 case "command-script":
                     if (cmdparams.Length > 0)
                     {
-                        m_OpenSimBase.RunCommandScript(cmdparams[0]);
+                        m_SimBase.RunCommandScript(cmdparams[0]);
                     }
                     break;
 
@@ -1188,12 +1200,15 @@ namespace WhiteCore.Region
 
         private void HandleChangeRegion(IScene scene, string[] cmd)
         {
-            if (cmd.Length <= 2) 
+            string regionName;
+            if (cmd.Length < 2) 
             {
-                MainConsole.Instance.Warn("You need to specify a region name.");
-                return;
-            }
-            string regionName = Util.CombineParams(cmd, 2); // in case of spaces in the name eg Steam Island
+                regionName = MainConsole.Instance.Prompt("Region to change to?","");
+                if (regionName == "")
+                    return;
+            } else
+                regionName = Util.CombineParams(cmd, 2); // in case of spaces in the name eg Steam Island
+
             regionName = regionName.ToLower();
 
             MainConsole.Instance.ConsoleScene = m_scenes.Find((s) => s.RegionInfo.RegionName.ToLower() == regionName);
@@ -1211,7 +1226,7 @@ namespace WhiteCore.Region
 			} else {
 				rName = MainConsole.Instance.ConsoleScene.RegionInfo.RegionName;
 			}
-			MainConsole.Instance.DefaultPrompt = "Region ["+rName+"]";
+            SetRegionPrompt(rName);
 
         }
 
@@ -1257,7 +1272,6 @@ namespace WhiteCore.Region
         /// <param name="cmd">Cmd.</param>
         private void HandleShowRegions(IScene scene, string[] cmd)
         {
-            //  MainConsole.Instance.Info(scene.ToString());
 
             string sceneInfo;
             var regInfo = scene.RegionInfo;
@@ -1280,7 +1294,7 @@ namespace WhiteCore.Region
 
             }
 
-            // todo ... change hardcoded field sizes to public constants
+            // TODO ... change hardcoded field sizes to public constants
             sceneInfo =  String.Format ("{0, -20}", regInfo.RegionName);
             sceneInfo += String.Format ("{0, -14}", regInfo.Startup);
             sceneInfo += String.Format ("{0, -16}", regInfo.RegionLocX / Constants.RegionSize + "," + regInfo.RegionLocY / Constants.RegionSize);
@@ -1312,39 +1326,60 @@ namespace WhiteCore.Region
                                                     rating));
         }
 
+        public List<string> GetOARFilenames()
+        {
+            var archives = new List<string>( Directory.GetFiles (Constants.DEFAULT_OARARCHIVE_DIR, "*.oar"));
+            var retVals = new List<string>();
+            foreach (string file in archives)
+                retVals.Add (Path.GetFileNameWithoutExtension (file));
+
+            return retVals;
+        }
+
         /// <summary>
         ///     Load a whole region from an opensimulator archive.
         /// </summary>
         /// <param name="cmdparams"></param>
         protected void HandleLoadOar(IScene scene, string[] cmdparams)
         {
+            string fileName;
+
             // a couple of sanity checks
 			if (cmdparams.Count() < 3)
             {
-                MainConsole.Instance.Info(
-                    "You need to specify a filename to load.");
-                return;
-            }
+                do
+                {
+                    fileName = MainConsole.Instance.Prompt("OAR to load (? for list)", "");
+                    if (fileName == "?")
+                    {
+                        var archives = GetOARFilenames();
+                        MainConsole.Instance.CleanInfo (" Available archives are : ");
+                        foreach (string file in archives)
+                            MainConsole.Instance.CleanInfo ("   " + file);
+                    }
+                } while (fileName == "?");
 
-			string fileName = cmdparams[2];
+                if (fileName == "")
+                    return;
+
+                // need to add this filename to the cmdparams
+                var newParams = new List<string>(cmdparams);
+                newParams.Add(fileName);
+                cmdparams = newParams.ToArray();
+
+            } else
+                fileName = cmdparams[2];
+
 			if (fileName.StartsWith("--", StringComparison.CurrentCultureIgnoreCase))
 			{
 				MainConsole.Instance.Info("[Error] Command format is 'load oar Filename [optional switches]'");
 				return;
 			}
 
-            string extension = Path.GetExtension (fileName);
-
-            if (extension == string.Empty)
-            {
-                fileName = fileName + ".oar";
-                cmdparams [2] = fileName;
-            }
-
-            if (!File.Exists(fileName)) {
-                MainConsole.Instance.Info ("OAR archive file '"+fileName+"' not found.");
+            fileName = PathHelpers.VerifyReadFile (fileName, ".oar", Constants.DEFAULT_OARARCHIVE_DIR);
+            if (fileName == "")                 // something wrong...
                 return;
-            }
+            cmdparams [2] = fileName;           // reset passed filename
 
             // should be good to go...
             string regionName = scene.RegionInfo.RegionName;
@@ -1360,7 +1395,21 @@ namespace WhiteCore.Region
             {
                 IRegionArchiverModule archiver = scene.RequestModuleInterface<IRegionArchiverModule>();
                 if (archiver != null)
-                    archiver.HandleLoadOarConsoleCommand(cmdparams);
+                {
+                    var success = archiver.HandleLoadOarConsoleCommand(cmdparams);
+                    if (!success)
+                    {
+                        ResetRegion(scene);
+
+                        ISimulationDataStore simStore = scene.SimulationDataService;
+                        success = simStore.RestoreLastBackup (scene.RegionInfo.RegionName);
+                        if(success)
+                        {
+                            scene.RegionInfo = m_selectedDataService.LoadRegionNameInfo (regionName, m_SimBase);
+                            MainConsole.Instance.Warn ("[SceneManager]: Region has been reloaded from the previous backup");
+                        }
+                    }
+                }
             }
             catch (Exception e)
             {
@@ -1374,42 +1423,33 @@ namespace WhiteCore.Region
         /// <param name="cmdparams"></param>
         protected void HandleSaveOar(IScene scene, string[] cmdparams)
         {
+            string fileName;
+
             if (MainConsole.Instance.ConsoleScene == null) 
             {
                 MainConsole.Instance.Info ("[SceneManager]: This command requires a region to be selected\n          Please change to a region first");
                 return;
             }
 
-            // a couple of sanity checkes
-            if (cmdparams.Count() < 3)
+            // a couple of sanity checks
+            if (cmdparams.Count () < 3)
             {
-                MainConsole.Instance.Info("You need to specify a filename for the save operation.");
-                return;
-            }
-
-            string fileName = cmdparams[2];
-            string extension = Path.GetExtension (fileName);
-
-            if (extension == string.Empty)
-            {
-                fileName = fileName + ".oar";
-                cmdparams [2] = fileName;
-            }
-
-            string fileDir = Path.GetDirectoryName(fileName);
-            if (fileDir == "") { fileDir = "./"; }
-            if (!Directory.Exists(fileDir))
-            {
-                MainConsole.Instance.Info ( "[SceneManager]: The folder specified, '" + fileDir + "' does not exist!" );
-                return;
-            }
-
-            if (File.Exists(fileName)) {
-                if (MainConsole.Instance.Prompt ("[SceneManager]: The OAR archive file '"+fileName+"' already exists. Overwrite?", "yes" ) != "yes")
+                fileName = MainConsole.Instance.Prompt ("Filename for the save OAR operation.", scene.RegionInfo.RegionName);
+                if (fileName == "")
                     return;
 
-                File.Delete (fileName);
+                // need to add this to the cmdparams
+                var newParams = new List<string>(cmdparams);
+                newParams.Add(fileName);
+                cmdparams = newParams.ToArray();
             }
+            else
+                fileName = cmdparams[2];
+
+            fileName = PathHelpers.VerifyWriteFile (fileName, ".oar", Constants.DEFAULT_OARARCHIVE_DIR, true);
+            if (fileName == "")                 // something wrong...
+                return;
+            cmdparams [2] = fileName;           // reset passed filename
 
             // should be good to go...
             IRegionArchiverModule archiver = scene.RequestModuleInterface<IRegionArchiverModule>();
@@ -1666,6 +1706,189 @@ namespace WhiteCore.Region
             MainConsole.Instance.Info("Region objects have been offset");
         }
             
+        private string GetCmdRegionName(string prompt)
+        {
+            string regionName;
+            regionName = MainConsole.Instance.Prompt (prompt, "");
+            if (regionName == "")
+                return "";
+
+            regionName = regionName.ToLower();
+            return regionName;
+        }
+
+        private void HandleDeleteRegion(IScene scene, string[] cmd)
+        {
+            // command is delete/remove region [regionname]
+            string regionName;
+            if (cmd.Length < 3)
+            {
+                regionName = MainConsole.Instance.Prompt ("Region to delete?", "");
+                if (regionName == "")
+                    return;
+            } else
+                regionName = Util.CombineParams(cmd, 2); // in case of spaces in the name eg Steam Island
+
+            regionName = regionName.ToLower();
+            IScene delScene = m_scenes.Find((s) => s.RegionInfo.RegionName.ToLower() == regionName);
+
+            if (delScene == null)
+            {
+                MainConsole.Instance.WarnFormat ("[SceneManager]: Sorry, {0} was not found", regionName);
+                return;
+            }
+
+            // last chance
+            if (MainConsole.Instance.Prompt("Are you sure you want to remove " + regionName +"? (yes/no)", "no") != "yes")
+                return;
+
+            RemoveRegion(delScene);
+            if(delScene != scene)
+                MainConsole.Instance.ConsoleScene = scene;
+        }
+
+        private void HandleResetRegion(IScene scene, string[] cmd)
+        {
+            string regionName;
+            if (cmd.Length < 3)
+            {
+                regionName = MainConsole.Instance.Prompt ("Region to reset?", "");
+                if (regionName == "")
+                    return;
+            } else
+                regionName = Util.CombineParams(cmd, 2); // in case of spaces in the name eg Steam Island
+
+            regionName = regionName.ToLower();
+            IScene resetScene = m_scenes.Find((s) => s.RegionInfo.RegionName.ToLower() == regionName);
+
+            if (resetScene == null)
+            {
+                MainConsole.Instance.WarnFormat ("[SceneManager]: Sorry, {0} was not found", regionName);
+                return;
+            }
+
+            // last chance
+            if (MainConsole.Instance.Prompt("Are you sure you want to reset " + regionName +"? (yes/no)", "no") != "yes")
+                return;
+
+            ResetRegion(resetScene);
+
+        }
+
+        private void HandleClearRegion(IScene scene, string[] cmd)
+        {
+            string regionName;
+            if (cmd.Length < 3)
+            {
+                regionName = MainConsole.Instance.Prompt ("Region to clear?", "");
+                if (regionName == "")
+                    return;
+            } else
+                regionName = Util.CombineParams(cmd, 2); // in case of spaces in the name eg Steam Island
+
+            regionName = regionName.ToLower();
+            IScene clearScene = m_scenes.Find((s) => s.RegionInfo.RegionName.ToLower() == regionName);
+
+            if (clearScene == null)
+            {
+                MainConsole.Instance.WarnFormat ("[SceneManager]: Sorry, {0} was not found", regionName);
+                return;
+            }
+
+            // last chance
+            if (MainConsole.Instance.Prompt("Are you sure you want to clear all " + regionName +" objects? (yes/no)", "no") != "yes")
+                return;
+
+            IBackupModule backup = clearScene.RequestModuleInterface<IBackupModule>();
+
+            if (backup != null)
+            {
+                if (MainConsole.Instance.Prompt ("Would you like to backup before clearing? (yes/no)", "yes") == "yes")
+                    clearScene.SimulationDataService.ForceBackup ();
+
+                backup.DeleteAllSceneObjects (); //Remove all the objects from the region
+                MainConsole.Instance.Warn (regionName + " has been cleared of objects");
+            } else
+                MainConsole.Instance.Error ("Unable to locate the backup module for "+ regionName + ". Clear aborted");
+
+        }
+            
+
+        private void HandleReloadRegion(IScene scene, string[] cmd)
+        {
+            IScene loadScene = scene;
+            string regionName;
+
+            if (MainConsole.Instance.ConsoleScene == null)
+            {
+                regionName = MainConsole.Instance.Prompt ("Region to load from backup?", "");
+                if (regionName == "")
+                    return;
+
+                regionName = regionName.ToLower ();
+                loadScene = m_scenes.Find ((s) => s.RegionInfo.RegionName.ToLower () == regionName);
+
+                if (loadScene == null)
+                {
+                    MainConsole.Instance.WarnFormat ("[SceneManager]: Sorry, {0} was not found", regionName);
+                    return;
+                }
+
+            } else
+                regionName = scene.RegionInfo.RegionName;
+
+
+            // we have the correct scene
+            string backupFileName;
+            if (cmd.Length < 4)
+            {
+                backupFileName = MainConsole.Instance.Prompt ("Backup file to load? (Previous / FileName to load)", "Previous");
+                if (backupFileName == "")
+                    return;
+            } else
+                backupFileName = cmd [3];
+
+            if (backupFileName == "Previous")
+            {
+                ISimulationDataStore simStore = loadScene.SimulationDataService;
+                backupFileName = simStore.GetLastBackupFileName (regionName);
+                if (backupFileName == "")
+                {
+                    MainConsole.Instance.Warn ("[SceneManager]: Sorry, unable to find any backups for " + regionName);
+                    return;
+                }
+            } else
+            {
+                if (!backupFileName.ToLower ().StartsWith (regionName))
+                {
+                    MainConsole.Instance.Warn ("[SceneManager]: Only backups from the same region should be restored!");
+                    return;
+                }
+            }
+
+            backupFileName = PathHelpers.VerifyReadFile (backupFileName, ".sim", "");
+            if (backupFileName == "")
+                return;
+
+            //we have verified what we need so... last chance
+            if (MainConsole.Instance.Prompt("Are you sure you want load " + regionName +
+                " from "+ Path.GetFileName(backupFileName) + "? (yes/no)", "no") != "yes")
+                return;
+
+            // let's do it.. 
+            if (loadScene.SimulationDataService.RestoreBackupFile(backupFileName, regionName))
+            {
+                loadScene.RegionInfo = m_selectedDataService.LoadRegionNameInfo (regionName, m_SimBase);
+                CloseRegion(loadScene, ShutdownType.Immediate, 0);
+                MainConsole.Instance.ConsoleScenes = m_scenes;
+
+                RegionInfo region = m_selectedDataService.LoadRegionNameInfo (regionName, m_SimBase);
+
+                StartRegion (m_selectedDataService, region);
+                MainConsole.Instance.WarnFormat ("[SceneManager]: {0} has been reloaded from the backup", regionName);
+            }
+        }
+
         #endregion
     }
 }

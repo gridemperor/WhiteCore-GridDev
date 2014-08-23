@@ -25,7 +25,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-using WhiteCore.Framework;
 using WhiteCore.Framework.Services;
 using WhiteCore.Framework.Services.ClassHelpers.Inventory;
 using OpenMetaverse;
@@ -72,8 +71,12 @@ namespace WhiteCore.Modules.Archivers
         {
             InventoryFolderBase rootFolder = inventoryService.GetRootFolder(userId);
 
-            if (null == rootFolder)
-                return new List<InventoryFolderBase>();
+            if (rootFolder == null)
+            {
+                // we don't appear to have any inventory setup yet
+                if (!inventoryService.CreateUserInventory (userId, true))
+                    return new List<InventoryFolderBase> ();
+            }
 
             return FindFolderByPath(inventoryService, rootFolder, path);
         }
@@ -160,9 +163,12 @@ namespace WhiteCore.Modules.Archivers
         {
             InventoryFolderBase rootFolder = inventoryService.GetRootFolder(userId);
 
-            if (null == rootFolder)
-                return null;
-
+            if (rootFolder == null)
+            {
+                // we don't appear to have any inventory setup yet
+                if (!inventoryService.CreateUserInventory (userId, true))
+                    return null;                                                // something really wrong
+            }
             return FindItemByPath(inventoryService, rootFolder, path);
         }
 

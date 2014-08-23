@@ -73,6 +73,11 @@ namespace WhiteCore.Modules.Archivers
         /// </value>
         protected bool m_skipAssets;
 
+        /// <value>
+        ///     Should we ignore any terrain info when reloading the archive?
+        /// </value>
+        protected bool m_skipTerrain;
+
         /// <summary>
         ///     Used to cache lookups for valid uuids.
         /// </summary>
@@ -92,7 +97,7 @@ namespace WhiteCore.Modules.Archivers
 
         private readonly Dictionary<UUID, AssetBase> assetNonBinaryCollection = new Dictionary<UUID, AssetBase>();
 
-        public ArchiveReadRequest(IScene scene, string loadPath, bool merge, bool skipAssets,
+        public ArchiveReadRequest(IScene scene, string loadPath, bool merge, bool skipAssets, bool skipTerrain,
                                   int offsetX, int offsetY, int offsetZ, bool flipX, bool flipY, bool useParcelOwnership,
                                   bool checkOwnership)
         {
@@ -114,11 +119,11 @@ namespace WhiteCore.Modules.Archivers
                     + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
                 MainConsole.Instance.Error(e);
             }
-            Init(scene, m_loadStream, merge, skipAssets, offsetX, offsetY, offsetZ, flipX, flipY, useParcelOwnership,
+            Init(scene, m_loadStream, merge, skipAssets, skipTerrain, offsetX, offsetY, offsetZ, flipX, flipY, useParcelOwnership,
                  checkOwnership);
         }
 
-        public void Init(IScene scene, Stream stream, bool merge, bool skipAssets,
+        public void Init(IScene scene, Stream stream, bool merge, bool skipAssets, bool skipTerrain,
                          int offsetX, int offsetY, int offsetZ, bool flipX, bool flipY, bool useParcelOwnership,
                          bool checkOwnership)
         {
@@ -134,29 +139,31 @@ namespace WhiteCore.Modules.Archivers
             m_errorMessage = String.Empty;
             m_merge = merge;
             m_skipAssets = skipAssets;
+            m_skipTerrain = skipTerrain;
         }
 
-        public ArchiveReadRequest(IScene scene, Stream stream, bool merge, bool skipAssets,
+        public ArchiveReadRequest(IScene scene, Stream stream, bool merge, bool skipAssets, bool skipTerrain,
                                   int offsetX, int offsetY, int offsetZ, bool flipX, bool flipY, bool useParcelOwnership,
                                   bool checkOwnership)
         {
-            Init(scene, stream, merge, skipAssets, offsetX, offsetY, offsetZ, flipX, flipY, useParcelOwnership,
+            Init(scene, stream, merge, skipAssets, skipTerrain, offsetX, offsetY, offsetZ, flipX, flipY, useParcelOwnership,
                  checkOwnership);
         }
 
         /// <summary>
         ///     Dearchive the region embodied in this request.
         /// </summary>
-        public void DearchiveRegion()
+        public bool DearchiveRegion()
         {
             // The same code can handle dearchiving 0.1 and 0.2 OpenSim Archive versions
-            DearchiveRegion0DotStar();
+            return DearchiveRegion0DotStar();
         }
 
-        private void DearchiveRegion0DotStar()
+        private bool DearchiveRegion0DotStar()
         {
             if (m_loadStream == null)
-                return;
+                return false;
+
             int successfulAssetRestores = 0;
             int failedAssetRestores = 0;
             string filePath = "NONE";
@@ -206,6 +213,9 @@ namespace WhiteCore.Modules.Archivers
             List<byte[]> seneObjectGroups = new List<byte[]>();
             Dictionary<UUID, UUID> assetBinaryChangeRecord = new Dictionary<UUID, UUID>();
             Queue<UUID> assets2Save = new Queue<UUID>();
+
+            MainConsole.Instance.Info("[ARCHIVER]: Commencing load from archive");
+            int ticker = 0;
             try
             {
                 byte[] data;
@@ -214,6 +224,17 @@ namespace WhiteCore.Modules.Archivers
                 {
                     if (TarArchiveReader.TarEntryType.TYPE_DIRECTORY == entryType)
                         continue;
+
+                    if (TarArchiveReader.TarEntryType.TYPE_NORMAL_FILE == entryType)
+                    {
+                        var fName = Path.GetFileName (filePath);
+                        if (fName.StartsWith ("."))                 // ignore hidden files
+                            continue;
+                    }
+
+                    ticker ++;
+                    if (ticker % 10 == 0)
+                        MainConsole.Instance.Ticker();
 
                     if (filePath.StartsWith(ArchiveConstants.OBJECTS_PATH))
                     {
@@ -254,7 +275,7 @@ namespace WhiteCore.Modules.Archivers
                             MainConsole.Instance.Info("[ARCHIVER]: Loaded " + successfulAssetRestores +
                                                       " assets and failed to load " + failedAssetRestores + " assets...");
                     }
-                    else if (filePath.StartsWith(ArchiveConstants.TERRAINS_PATH))
+                    else if (!m_skipTerrain && filePath.StartsWith(ArchiveConstants.TERRAINS_PATH))
                     {
                         LoadTerrain(filePath, data);
                     }
@@ -262,7 +283,7 @@ namespace WhiteCore.Modules.Archivers
                     {
                         LoadRegionSettings(filePath, data);
                     }
-                    else if (filePath.StartsWith(ArchiveConstants.LANDDATA_PATH))
+                    else if (!m_skipTerrain && filePath.StartsWith(ArchiveConstants.LANDDATA_PATH))
                     {
                         LandData parcel = LandDataSerializer.Deserialize(m_utf8Encoding.GetString(data));
                         parcel.OwnerID = ResolveUserUuid(parcel.OwnerID, UUID.Zero, "", Vector3.Zero, null);
@@ -273,10 +294,19 @@ namespace WhiteCore.Modules.Archivers
                         LoadControlFile(data);
                     }
                 }
+
+                MainConsole.Instance.CleanInfo("");
+                MainConsole.Instance.Info("[ARCHIVER]: Saving loaded assets");
+                ticker = 0;
+
                 // Save Assets
                 int savingAssetsCount = 0;
                 while (assets2Save.Count > 0)
                 {
+                    ticker++;
+                    if (ticker % 10 == 0)
+                        MainConsole.Instance.Ticker();
+
                     try
                     {
                         UUID assetid = assets2Save.Dequeue();
@@ -291,8 +321,15 @@ namespace WhiteCore.Modules.Archivers
                     }
                 }
 
+                MainConsole.Instance.CleanInfo("");
+                MainConsole.Instance.Info("[ARCHIVER]: Saving loaded objects");
+                ticker = 0;
                 foreach (byte[] data2 in seneObjectGroups)
                 {
+                    ticker++;
+                    if (ticker % 10 == 0)
+                        MainConsole.Instance.Ticker();
+
                     byte[] data3 = data2;
 
                     string stringData = Utils.BytesToString(data3);
@@ -391,7 +428,7 @@ namespace WhiteCore.Modules.Archivers
                     "[ARCHIVER]: Aborting load with error in archive file {0}.  {1}", filePath, e);
                 m_errorMessage += e.ToString();
                 m_scene.EventManager.TriggerOarFileLoaded(UUID.Zero.Guid, m_errorMessage);
-                return;
+                return false;
             }
             finally
             {
@@ -408,6 +445,9 @@ namespace WhiteCore.Modules.Archivers
                 if (backup != null)
                     backup.LoadingPrims = false;
             }
+
+            // finished with the ticker
+            MainConsole.Instance.CleanInfo("");
 
             //Now back up the prims
             foreach (ISceneEntity grp in groupsToBackup)
@@ -434,14 +474,16 @@ namespace WhiteCore.Modules.Archivers
             // otherwise, use the master avatar uuid instead
 
             // Reload serialized parcels
-            MainConsole.Instance.InfoFormat("[ARCHIVER]: Loading {0} parcels.  Please wait.", landData.Count);
+            if (!m_skipTerrain)
+            {
+                MainConsole.Instance.InfoFormat ("[ARCHIVER]: Loading {0} parcels.  Please wait.", landData.Count);
 
-            IParcelManagementModule parcelManagementModule = m_scene.RequestModuleInterface<IParcelManagementModule>();
-            if (parcelManagementModule != null)
-                parcelManagementModule.IncomingLandDataFromOAR(landData, m_merge, new Vector2(m_offsetX, m_offsetY));
+                IParcelManagementModule parcelManagementModule = m_scene.RequestModuleInterface<IParcelManagementModule> ();
+                if (parcelManagementModule != null)
+                    parcelManagementModule.IncomingLandDataFromOAR (landData, m_merge, new Vector2 (m_offsetX, m_offsetY));
 
-            MainConsole.Instance.InfoFormat("[ARCHIVER]: Restored {0} parcels.", landData.Count);
-
+                MainConsole.Instance.InfoFormat ("[ARCHIVER]: Restored {0} parcels.", landData.Count);
+            }
             //Clean it out
             landData.Clear();
 
@@ -450,6 +492,8 @@ namespace WhiteCore.Modules.Archivers
 
             m_validUserUuids.Clear();
             m_scene.EventManager.TriggerOarFileLoaded(UUID.Zero.Guid, m_errorMessage);
+
+            return true;    // all good
         }
 
         private AssetBase SaveNonBinaryAssets(UUID key, AssetBase asset, Dictionary<UUID, UUID> assetBinaryChangeRecord)
@@ -701,8 +745,7 @@ namespace WhiteCore.Modules.Archivers
             // Create the XmlParserContext.
             XmlParserContext context = new XmlParserContext(null, nsmgr, null, XmlSpace.None);
 
-            XmlTextReader xtr
-                = new XmlTextReader(m_asciiEncoding.GetString(data), XmlNodeType.Document, context);
+            XmlTextReader xtr = new XmlTextReader(m_asciiEncoding.GetString(data), XmlNodeType.Document, context);
 
             RegionSettings currentRegionSettings = m_scene.RegionInfo.RegionSettings;
 

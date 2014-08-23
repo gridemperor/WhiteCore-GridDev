@@ -35,7 +35,7 @@ namespace WhiteCore.Framework.Modules
     /// </summary>
     public interface IRegionArchiverModule
     {
-        void HandleLoadOarConsoleCommand(string[] cmdparams);
+        bool HandleLoadOarConsoleCommand(string[] cmdparams);
         void HandleSaveOarConsoleCommand(string[] cmdparams);
 
         /// <summary>
@@ -70,7 +70,7 @@ namespace WhiteCore.Framework.Modules
         /// </summary>
         /// If you want notification of when it has completed then subscribe to the EventManager.OnOarFileLoaded event.
         /// <param name="loadPath"></param>
-        void DearchiveRegion(string loadPath);
+        bool DearchiveRegion(string loadPath);
 
         /// <summary>
         ///     Dearchive the given region archive.  This replaces the existing scene.
@@ -85,6 +85,10 @@ namespace WhiteCore.Framework.Modules
         ///     If true, the archive is loaded without loading any assets contained within it.  This is useful if the
         ///     assets are already known to be present in the grid's asset service.
         /// </param>
+        /// <param name="skipTerrain">
+        ///     If true, the archive is loaded without loading any terrain contained within it. 
+        ///     This is useful if assets need to be transferred to another existing region.
+        /// </param>
         /// <param name="offsetX"></param>
         /// <param name="offsetY"></param>
         /// <param name="offsetZ"></param>
@@ -92,7 +96,8 @@ namespace WhiteCore.Framework.Modules
         /// <param name="flipY"></param>
         /// <param name="useParcelOwnership"></param>
         /// <param name="checkOwnership"></param>
-        void DearchiveRegion(string loadPath, bool merge, bool skipAssets, int offsetX, int offsetY, int offsetZ,
+        bool DearchiveRegion(string loadPath, bool merge, bool skipAssets, bool skipTerrain, 
+                             int offsetX, int offsetY, int offsetZ,
                              bool flipX, bool flipY, bool useParcelOwnership, bool checkOwnership);
 
         /// <summary>
@@ -100,7 +105,7 @@ namespace WhiteCore.Framework.Modules
         /// </summary>
         /// If you want notification of when it has completed then subscribe to the EventManager.OnOarFileLoaded event.
         /// <param name="loadStream"></param>
-        void DearchiveRegion(Stream loadStream);
+        bool DearchiveRegion(Stream loadStream);
 
         /// <summary>
         ///     Dearchive a region from a stream.  This replaces the existing scene.
@@ -115,6 +120,10 @@ namespace WhiteCore.Framework.Modules
         ///     If true, the archive is loaded without loading any assets contained within it.  This is useful if the
         ///     assets are already known to be present in the grid's asset service.
         /// </param>
+        /// <param name="skipTerrain">
+        ///     If true, the archive is loaded without loading any terrain contained within it. 
+        ///     This is useful if assets need to be transferred to another existing region.
+        /// </param>
         /// <param name="offsetX"></param>
         /// <param name="offsetY"></param>
         /// <param name="offsetZ"></param>
@@ -122,7 +131,8 @@ namespace WhiteCore.Framework.Modules
         /// <param name="flipY"></param>
         /// <param name="useParcelOwnership"></param>
         /// <param name="checkOwnership"></param>
-        void DearchiveRegion(Stream loadStream, bool merge, bool skipAssets, int offsetX, int offsetY, int offsetZ,
+        bool DearchiveRegion(Stream loadStream, bool merge, bool skipAssets, bool skipTerrain,
+                             int offsetX, int offsetY, int offsetZ,
                              bool flipX, bool flipY, bool useParcelOwnership, bool checkOwnership);
     }
 }

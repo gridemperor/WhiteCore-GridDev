@@ -37,7 +37,6 @@ using OpenMetaverse.StructuredData;
 using System.Collections.Generic;
 using System.Linq;
 using OpenMetaverse;
-using System;
 
 namespace WhiteCore.Modules.Estate
 {
@@ -54,130 +53,6 @@ namespace WhiteCore.Modules.Estate
             m_registry = simBase.ApplicationRegistry;
         }
 
-        private EstateSettings CreateEstateInfo(IScene scene)
-        {
-            EstateSettings ES = new EstateSettings();
-            while (true)
-            {
-                IEstateConnector EstateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-
-                string name = MainConsole.Instance.Prompt("Estate owner name", LastEstateOwner);
-                UserAccount account = scene.UserAccountService.GetUserAccount(scene.RegionInfo.AllScopeIDs, name);
-
-                if (account == null)
-                {
-                    string createNewUser =
-                        MainConsole.Instance.Prompt(
-                            "Could not find user " + name + ". Would you like to create this user?", "yes");
-
-                    if (createNewUser == "yes")
-                    {
-                        // Create a new account
-                        string password = MainConsole.Instance.PasswordPrompt(name + "'s password");
-                        string email = MainConsole.Instance.Prompt(name + "'s email", "");
-
-                        scene.UserAccountService.CreateUser(name, Util.Md5Hash(password), email);
-                        account = scene.UserAccountService.GetUserAccount(scene.RegionInfo.AllScopeIDs, name);
-
-                        if (account == null)
-                        {
-                            MainConsole.Instance.ErrorFormat(
-                                "[EstateService]: Unable to store account. If this simulator is connected to a grid, you must create the estate owner account first at the grid level.");
-                            continue;
-                        }
-                    }
-                    else
-                        continue;
-                }
-
-                LastEstateOwner = account.Name;
-
-                List<EstateSettings> ownerEstates = EstateConnector.GetEstates(account.PrincipalID);
-                string response = (ownerEstates != null && ownerEstates.Count > 0) ? "yes" : "no";
-                if (ownerEstates != null && ownerEstates.Count > 0)
-                {
-                    MainConsole.Instance.WarnFormat("Found user. {0} has {1} estates currently. {2}", account.Name,
-                                                    ownerEstates.Count,
-                                                    "These estates are the following:");
-                    foreach (EstateSettings t in ownerEstates)
-                    {
-                        MainConsole.Instance.Warn(t.EstateName);
-                    }
-                    response =
-                        MainConsole.Instance.Prompt(
-                            "Do you wish to join one of these existing estates? (yes/no/cancel)",
-                            response);
-                }
-                else
-                {
-                    MainConsole.Instance.WarnFormat("Found user. {0} has no estates currently. Creating a new estate.",
-                                                    account.Name);
-                }
-                if (response == "no")
-                {
-                    // Create a new estate
-                    // ES could be null 
-                    ES.EstateName = MainConsole.Instance.Prompt("New estate name (or cancel to go back)", "My Estate");
-                    if (ES.EstateName == "cancel")
-                        continue;
-                    //Set to auto connect to this region next
-                    LastEstateName = ES.EstateName;
-                    ES.EstateOwner = account.PrincipalID;
-
-                    ES.EstateID = (uint) EstateConnector.CreateNewEstate(ES, scene.RegionInfo.RegionID);
-                    if (ES.EstateID == 0)
-                    {
-                        MainConsole.Instance.Warn("There was an error in creating this estate: " + ES.EstateName);
-                            //EstateName holds the error. See LocalEstateConnector for more info.
-                        continue;
-                    }
-                    break;
-                }
-                if (response == "yes")
-                {
-                    if (ownerEstates != null && ownerEstates.Count != 1)
-                    {
-                        if (LastEstateName == "")
-                            LastEstateName = ownerEstates[0].EstateName;
-
-                        List<string> responses = ownerEstates.Select(settings => settings.EstateName).ToList();
-
-                        responses.Add("None");
-                        responses.Add("Cancel");
-                        response = MainConsole.Instance.Prompt("Estate name to join", LastEstateName, responses);
-                        if (response == "None" || response == "Cancel")
-                            continue;
-                        LastEstateName = response;
-                    }
-                    else if (ownerEstates != null) LastEstateName = ownerEstates[0].EstateName;
-
-                    int estateID = EstateConnector.GetEstate(account.PrincipalID, LastEstateName);
-                    if (estateID == 0)
-                    {
-                        MainConsole.Instance.Warn("The name you have entered matches no known estate. Please try again");
-                        continue;
-                    }
-
-                    //We save the Password because we have to reset it after we tell the EstateService about it, as it clears it for security reasons
-                    if (EstateConnector.LinkRegion(scene.RegionInfo.RegionID, estateID))
-                    {
-                        if ((ES = EstateConnector.GetEstateSettings(scene.RegionInfo.RegionID)) == null ||
-                            ES.EstateID == 0)
-                            //We could do by EstateID now, but we need to completely make sure that it fully is set up
-                        {
-                            MainConsole.Instance.Warn("The connection to the server was broken, please try again soon.");
-                            continue;
-                        }
-                        MainConsole.Instance.Warn("Successfully joined the estate!");
-                        break;
-                    }
-
-                    MainConsole.Instance.Warn("Joining the estate failed. Please try again.");
-                    continue;
-                }
-            }
-            return ES;
-        }
 
         public void PostInitialise(IScene scene, IConfigSource source, ISimulationBase openSimBase)
         {
@@ -186,14 +61,13 @@ namespace WhiteCore.Modules.Estate
         public void FinishStartup(IScene scene, IConfigSource source, ISimulationBase openSimBase)
         {
             IEstateConnector EstateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-            CheckSystemEstateInfo (EstateConnector);
 
             if (EstateConnector != null)
             {
                 EstateSettings ES = EstateConnector.GetEstateSettings(scene.RegionInfo.RegionID);
                 if (ES == null)
                 {
-                    //It could not find the estate service, wait until it can find it
+                    //Could not locate the estate service, wait until it can find it
                     MainConsole.Instance.Warn(
                         "We could not find the estate service for this region. Please make sure that your URLs are correct in grid mode.");
                     while (true)
@@ -211,7 +85,7 @@ namespace WhiteCore.Modules.Estate
                 }
                 else if (ES.EstateID == 0)
                 {
-                    //It found the estate service, but found no estates for this region, make a new one
+                    //Found the estate service, but found no estates for this region, make a new one
                     MainConsole.Instance.Warn("[EstateInitializer]: Your region '" + scene.RegionInfo.RegionName +
                         "' is not part of an estate.");
 
@@ -234,44 +108,6 @@ namespace WhiteCore.Modules.Estate
                     "change estate",
                     "change info about the estate for the given region",
                     ChangeEstate, true, false);
-
-                MainConsole.Instance.Commands.AddCommand (
-                    "create estate",
-                    "create estate [name [owner (<firstname> <lastname>)]]",
-                    "Creates a new estate with the specified name, owned by the specified user."
-                    + "\n    The Estate name must be unique.",
-                    CreateEstateCommand, false, true);
-
-                MainConsole.Instance.Commands.AddCommand (
-                    "set estate owner",
-                    "set estate owner [<estate-name> [owner (<Firstname> <Lastname>) ]]",
-                    "Sets the owner of the specified estate to the specified user. ",
-                    SetEstateOwnerCommand, false, true);
-
-                MainConsole.Instance.Commands.AddCommand (
-                    "set estate name",
-                    "set estate name [estate-name [new-name]]",
-                    "Sets the name of the specified estate to the specified value. New name must be unique.",
-                    SetEstateNameCommand, false, true);
-
-                MainConsole.Instance.Commands.AddCommand (
-                    "estate link region",
-                    "estate link region [estate-name [region-name]]",
-                    "Attaches the specified region to the specified estate.",
-                    EstateLinkRegionCommand, false, true);
-
-                MainConsole.Instance.Commands.AddCommand (
-                    "estate unlink region",
-                    "estate unlink region [estate-name [region-name]]",
-                    "Removes the specified region from the specified estate.",
-                    EstateUnLinkRegionCommand, false, true);
-
-                MainConsole.Instance.Commands.AddCommand(
-                    "show estates",
-                    "show estates",
-                    "Show information about all estates in this instance",
-                    ShowEstatesCommand, false, true);
-
             }
         }
 
@@ -283,387 +119,208 @@ namespace WhiteCore.Modules.Estate
         {
         }
 
-        private void CheckSystemEstateInfo(IEstateConnector estateConnector)
+        /// <summary>
+        /// Links the region to the mainland estate.
+        /// </summary>
+        /// <returns>The mainland estate.</returns>
+        /// <param name="regionID">Region I.</param>
+        private EstateSettings LinkMainlandEstate(UUID regionID)
         {
-            // these should have already been checked but just make sure...
-            if (estateConnector == null)
-                return;
+            // link region to the Mainland... assign to RealEstateOwner & System Estate
+            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
+            EstateSettings ES;
 
-            if (estateConnector.RemoteCalls ())
-                return;
-
-            if (estateConnector.EstateExists (Constants.SystemEstateName))
-                return;
-
-            // Create a new estate
-            EstateSettings ES = new EstateSettings();
-            ES.EstateName = Constants.SystemEstateName;
-            ES.EstateOwner = (UUID) Constants.RealEstateOwnerUUID;
-
-            ES.EstateID = (uint) estateConnector.CreateNewEstate(ES);
-            if (ES.EstateID == 0)
+            // link region to the 'Mainland'
+            if (estateConnector.LinkRegion(regionID, Constants.SystemEstateID))
             {
-                MainConsole.Instance.Warn("There was an error in creating the system estate: " + ES.EstateName);
-                //EstateName holds the error. See LocalEstateConnector for more info.
+                ES = estateConnector.GetEstateSettings (regionID);     // refresh to check linking
+                if ( (ES == null) || (ES.EstateID == 0) )
+                {
+                    MainConsole.Instance.Warn("An error was encountered linking the region to the 'Mainland'!\nPossibly a problem with the server connection, please link this region later.");
+                    return null;
+                }
+                MainConsole.Instance.Warn("Successfully joined the 'Mainland'!");
+                return ES;
+            }
 
-            } else {
-                MainConsole.Instance.InfoFormat("[EstateService]: The estate '{0}' owned by '{1}' has been created.", 
-                    Constants.SystemEstateName, Constants.RealEstateOwnerName);
+            MainConsole.Instance.Warn("Joining the 'Mainland' failed. Please link this region later.");
+            return null;
+        }
+
+        /// <summary>
+        /// Creates the estate info for a region.
+        /// </summary>
+        /// <returns>The estate info.</returns>
+        /// <param name="scene">Scene.</param>
+        private EstateSettings CreateEstateInfo(IScene scene)
+        {
+
+            // check for regionType to determine if this is 'Mainland' or an 'Estate'
+            string regType = scene.RegionInfo.RegionType.ToLower ();
+            if (regType.StartsWith ("m"))
+            {
+                return LinkMainlandEstate (scene.RegionInfo.RegionID);
+            }
+
+            // we are linking to a user estate
+            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
+            ISystemEstateService sysEstateInfo = m_registry.RequestModuleInterface<ISystemEstateService>();
+             
+            string sysEstateOwnerName;
+            var sysAccount = scene.UserAccountService.GetUserAccount (scene.RegionInfo.AllScopeIDs, (UUID) Constants.RealEstateOwnerUUID);
+
+            if (sysAccount == null)
+                sysEstateOwnerName = sysEstateInfo.SystemEstateOwnerName;
+            else
+                sysEstateOwnerName = sysAccount.Name;
+
+
+            // This is an 'Estate' so get some details....
+            LastEstateOwner = sysEstateOwnerName;
+            while (true)
+            {
+                UserAccount account;
+                string estateOwner;
+ 
+                estateOwner = MainConsole.Instance.Prompt("Estate owner name (" + sysEstateOwnerName +"/User Name)", LastEstateOwner);
+ 
+                // we have a prospective estate owner...
+                List<EstateSettings> ownerEstates = null;
+                account = scene.UserAccountService.GetUserAccount(scene.RegionInfo.AllScopeIDs, estateOwner);
+                if (account != null)
+                {
+                    // we have a user account...
+                    LastEstateOwner = account.Name;
+
+                    ownerEstates = estateConnector.GetEstates (account.PrincipalID);
+                }
+
+                if (account == null || ownerEstates == null || ownerEstates.Count == 0)
+                {
+                    if (account == null)
+                        MainConsole.Instance.Warn ("[Estate]: Unable to locate the user " + estateOwner);
+                    else
+                        MainConsole.Instance.WarnFormat("[Estate]: The user, {0}, has no estates currently.", account.Name);
+
+                    string joinMainland = MainConsole.Instance.Prompt(
+                        "Do you want to 'park' the region with the system owner/estate? (yes/no)", "yes");
+                    if (joinMainland.ToLower().StartsWith("y"))                      // joining 'mainland'
+                        return LinkMainlandEstate (scene.RegionInfo.RegionID);
+
+                    continue;
+                }
+
+                if ( ownerEstates.Count > 1)
+                {
+                    MainConsole.Instance.InfoFormat("[Estate]: User {0} has {1} estates currently. {2}",
+                        account.Name, ownerEstates.Count, "These estates are the following:");
+                    foreach (EstateSettings t in ownerEstates)
+                        MainConsole.Instance.CleanInfo("         " + t.EstateName);
+
+                    LastEstateName = ownerEstates[0].EstateName;
+
+                    List<string> responses = ownerEstates.Select(settings => settings.EstateName).ToList();
+                    responses.Add("Cancel");
+
+                    do
+                    {
+                        //TODO: This could be a problem if we have a lot of estates
+                        string response = MainConsole.Instance.Prompt("Estate name to join", LastEstateName, responses);    
+                        if (response == "None" || response == "Cancel")
+                        {
+                            LastEstateName = "";
+                            break;
+                        }
+                        LastEstateName = response;
+                    } while (LastEstateName == "");
+                    if (LastEstateName == "")
+                        continue;
+
+                } else 
+                    LastEstateName = ownerEstates[0].EstateName;
+            
+             
+                // we should have a user account and estate name by now
+                int estateID = estateConnector.GetEstate(account.PrincipalID, LastEstateName);
+                if (estateID == 0)
+                {
+                    MainConsole.Instance.Warn("[Estate]: The name you have entered matches no known estate. Please try again");
+                    continue;
+                }
+
+                // link up the region
+                EstateSettings ES;
+                if (estateConnector.LinkRegion(scene.RegionInfo.RegionID, estateID))
+                {
+                    if ((ES = estateConnector.GetEstateSettings(scene.RegionInfo.RegionID)) == null ||
+                         ES.EstateID == 0)
+                        //We could do by EstateID now, but we need to completely make sure that it fully is set up
+                    {
+                        MainConsole.Instance.Warn("[Estate]: The connection to the server was broken, please try again.");
+                        continue;
+                    }
+                } else
+                {
+                    MainConsole.Instance.WarnFormat("[Estate]: Joining the {0} estate failed. Please try again.", LastEstateName);
+                    continue;
+                }
+
+                MainConsole.Instance.InfoFormat("[Estate]: Successfully joined the {0} estate!", LastEstateName);
+                return ES;
             }
         }
 
+        /// <summary>
+        /// Changes the region estate.
+        /// </summary>
+        /// <param name="scene">Scene.</param>
+        /// <param name="cmd">Cmd.</param>
         protected void ChangeEstate(IScene scene, string[] cmd)
         {
             IEstateConnector EstateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
             if (EstateConnector != null)
             {
+                // a bit of info re 'Mainland'
+                string regType = scene.RegionInfo.RegionType.ToLower ();
+                if (regType.StartsWith ("m") && (scene.RegionInfo.EstateSettings.EstateID == Constants.SystemEstateID) )
+                {
+                    MainConsole.Instance.Info("[Estate]: This region is already part of the Mainland system estate");
+                    return;
+                }
+
                 string removeFromEstate =
                     MainConsole.Instance.Prompt(
                         "Are you sure you want to change the estate for region '" + scene.RegionInfo.RegionName + "'? (yes/no)",
                         "yes");
+ 
                 if (removeFromEstate == "yes")
                 {
+                    if (regType.StartsWith ("m"))
+                        MainConsole.Instance.Info("[Estate]: Mainland type regions can only be part of the Mainland system estate");
+
                     if (!EstateConnector.DelinkRegion(scene.RegionInfo.RegionID))
                     {
-                        MainConsole.Instance.Warn("Unable to remove this region from the estate.");
+                        MainConsole.Instance.Warn("[Estate]: Unable to remove this region from the estate.");
                         return;
                     }
                     scene.RegionInfo.EstateSettings = CreateEstateInfo(scene);
                 }
                 else
-                    MainConsole.Instance.Warn("No action has been taken.");
+                    MainConsole.Instance.Warn("[Estate]: No action has been taken.");
             }
         }
 
-
-        protected void CreateEstateCommand(IScene scene, string[] cmd)
-        {
-            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-            IUserAccountService accountService = m_registry.RequestModuleInterface<IUserAccountService>();
  
-            string estateName = "";
-            string estateOwner = Constants.RealEstateOwnerName;
-
-            // check for passed estate name
-            estateName = (cmd.Length < 3) 
-                ? MainConsole.Instance.Prompt("Estate name: ") 
-                : cmd[2];
-            if (estateName == "")
-                return;
-
-            // verify that the estate does not already exist
-            if (estateConnector.EstateExists(estateName))
-            {
-                MainConsole.Instance.ErrorFormat("EstateService]: The estate '{0}' already exists!",estateName);
-                return;
-            }
-
-            // owner?
-            estateOwner = (cmd.Length > 3) 
-                ? Util.CombineParams(cmd, 4) // in case of spaces in the name eg Allan Allard
-                : MainConsole.Instance.Prompt("Estate owner: ", estateOwner); 
-            if (estateOwner == "")
-                return;
-
-
-            // check to make sure the user exists
-            UserAccount account = accountService.GetUserAccount(null, estateOwner);
-             if (account == null)
-            {
-                MainConsole.Instance.WarnFormat("[USER ACCOUNT SERVICE]: The user, '{0}' was not found!", estateOwner);
-                string createUser = MainConsole.Instance.Prompt("Do you wish to create this user?  (yes/no)","yes").ToLower();
-                if (!createUser.StartsWith("y"))
-                   return;
-
-                // Create a new account
-                string password = MainConsole.Instance.PasswordPrompt(estateOwner + "'s password");
-                string email = MainConsole.Instance.Prompt(estateOwner + "'s email", "");
-
-                accountService.CreateUser(estateOwner, Util.Md5Hash(password), email);
-                // CreateUser will tell us success or problem
-                account = accountService.GetUserAccount(null, estateOwner);
-
-                if (account == null)
-                {
-                    MainConsole.Instance.ErrorFormat(
-                        "[EstateService]: Unable to store account details.\n   If this simulator is connected to a grid, create the estate owner account first at the grid level.");
-                    return;
-                }
-            }
-
-            // we have an estate name and a user
-            // Create a new estate
-            EstateSettings ES = new EstateSettings();
-            ES.EstateName = estateName;
-            ES.EstateOwner = account.PrincipalID;
-
-            ES.EstateID = (uint) estateConnector.CreateNewEstate(ES);
-            if (ES.EstateID == 0)
-            {
-                MainConsole.Instance.Warn("There was an error in creating this estate: " + ES.EstateName);
-                //EstateName holds the error. See LocalEstateConnector for more info.
-
-            } else
-                MainConsole.Instance.InfoFormat("[EstateService]: The estate '{0}' owned by '{1}' has been created.", estateName, estateOwner);
-        }
-
-        protected void SetEstateOwnerCommand(IScene scene, string[] cmd)
-        {
-            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-            IUserAccountService accountService = m_registry.RequestModuleInterface<IUserAccountService>();
-
-            string estateName = "";
-            string estateOwner = "";
-            UserAccount ownerAccount;
-
-            // check for passed estate name
-            estateName = (cmd.Length < 4) 
-                ? MainConsole.Instance.Prompt("Estate name ") 
-                : cmd[2];
-            if (estateName == "")
-                return;
-
-            // verify that the estate does exist
-            EstateSettings ES = estateConnector.GetEstateSettings (estateName);
-            if (ES == null)
-            {
-                MainConsole.Instance.WarnFormat("[EstateService]: The estate '{0}' does not exist!",estateName);
-                return;
-            }
-
-            // owner?
-            if (cmd.Length < 4) 
-            {
-                UUID estateOwnerID = ES.EstateOwner;
-                ownerAccount = accountService.GetUserAccount(null, estateOwnerID);
-
-                estateOwner = MainConsole.Instance.Prompt ("New owner for this estate", ownerAccount.Name); 
-            } else {
-                estateOwner = Util.CombineParams(cmd, 5); // in case of spaces in the name eg Allan Allard
-            }
-            if (estateOwner == "")
-                return;
-
-            // check to make sure the user exists
-            ownerAccount = accountService.GetUserAccount(null, estateOwner);
-            if (ownerAccount == null)
-            {
-                MainConsole.Instance.WarnFormat ("[User Account Service]: The user, '{0}' was not found!", estateOwner);
-                return;
-            }
-
-            // We have a valid Estate and user, send it off for processing.
-            ES.EstateOwner = ownerAccount.PrincipalID;
-            estateConnector.SaveEstateSettings(ES);
-
-            MainConsole.Instance.InfoFormat("[EstateService]: Estate owner for '{0}' changed to '{1}'", estateName, estateOwner);
-        }
-
-        protected void SetEstateNameCommand(IScene scene, string[] cmd)
-        {
-            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-
-            string estateName = "";
-            string estateNewName = "";
-
-            // check for passed estate name
-            estateName = (cmd.Length < 4) 
-                ? MainConsole.Instance.Prompt("Estate name: ") 
-                : cmd[3];
-            if (estateName == "")
-                return;
-
-            // verify that the estate does exist
-            EstateSettings ES = estateConnector.GetEstateSettings (estateName);
-            if (ES == null)
-            {
-                MainConsole.Instance.ErrorFormat("[EstateService]: The estate '{0}' does not exist!",estateName);
-                return;
-            }
-
-            // check for passed  estate new name
-            estateNewName = (cmd.Length < 4) 
-                ? MainConsole.Instance.Prompt("Estate new name: ") 
-                : cmd[4];
-            if (estateNewName == "")
-                return;
-
-            // We have a valid Estate and user, send it off for processing.
-            ES.EstateName = estateNewName;
-            estateConnector.SaveEstateSettings(ES);
-
-            MainConsole.Instance.InfoFormat("[EstateService]: Estate '{0}' changed to '{1}'", estateName, estateNewName);
-        }
-
-
-
-        private void EstateLinkRegionCommand(IScene scene, string[] cmd)
-        {
-            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-            IGridService gridService = m_registry.RequestModuleInterface<IGridService>();
-
-            string estateName = "";
-            string regionName = "";
-
-            // check for passed estate name
-            estateName = (cmd.Length < 4) 
-                ? MainConsole.Instance.Prompt("Estate name: ") 
-                : cmd[3];
-            if (estateName == "")
-                return;
-
-            // verify that the estate does exist
-            EstateSettings ES = estateConnector.GetEstateSettings (estateName);
-            if (ES == null)
-            {
-                MainConsole.Instance.ErrorFormat("[EstateService]: The estate '{0}' does not exist!",estateName);
-                return;
-            }
-
-            // check for passed  region to link to
-            if (scene != null)
-                regionName = scene.RegionInfo.RegionName;
-
-            regionName = (cmd.Length < 4) 
-                ? MainConsole.Instance.Prompt("Link to region: ",regionName) 
-                : cmd[4];
-            if (regionName == "")
-                return;
-
-            // verify that the region does exist
-            var region = gridService.GetRegionByName(null, regionName);
-            if (region == null)
-            {
-                MainConsole.Instance.ErrorFormat("[EstateService]: The requestes region '{0}' does not exist!",regionName);
-                return;
-            }
-
-            // have all details.. do it...
-            if (estateConnector.LinkRegion (region.RegionID, (int) ES.EstateID))
-            {
-                // check for update..
-                if (estateConnector.GetEstateSettings(region.RegionID) == null) 
-                    MainConsole.Instance.Warn("The region link failed, please try again soon.");
-                else
-                    MainConsole.Instance.InfoFormat ("Region '{0}' is now attached to estate '{1}'", regionName, estateName);
-            } else
-                MainConsole.Instance.Warn("Joining the estate failed. Please try again.");
-
-        }
-
-        private void EstateUnLinkRegionCommand(IScene scene, string[] cmd)
-        {
-            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-            IGridService gridService = m_registry.RequestModuleInterface<IGridService>();
-
-            string estateName = "";
-            string regionName = "";
-
-            // check for passed estate name
-            estateName = (cmd.Length < 4) 
-                ? MainConsole.Instance.Prompt("Estate name: ") 
-                : cmd[3];
-            if (estateName == "")
-                return;
-
-            // verify that the estate does exist
-            EstateSettings ES = estateConnector.GetEstateSettings (estateName);
-            if (ES == null)
-            {
-                MainConsole.Instance.ErrorFormat("[EstateService]: The estate '{0}' does not exist!",estateName);
-                return;
-            }
-
-            // check for passed  region to link to
-            if (scene != null)
-                regionName = scene.RegionInfo.RegionName;
-
-            regionName = (cmd.Length < 4) 
-                ? MainConsole.Instance.Prompt("Remove region: ",regionName) 
-                : cmd[4];
-            if (regionName == "")
-                return;
-
-            // verify that the region does exist
-            var region = gridService.GetRegionByName(null, regionName);
-            if (region == null)
-            {
-                MainConsole.Instance.ErrorFormat("[EstateService]: The requested region '{0}' does not exist!",regionName);
-                return;
-            }
-
-            // have all details.. do it...
-            if (!estateConnector.DelinkRegion (region.RegionID))
-            {
-                MainConsole.Instance.Warn ("Unlinking the region failed. Please try again.");
-                return;
-            }
-
-            // unlink was successful..
-            //MainConsole.Instance.InfoFormat ("Region '{0}' has been removed from estate '{1}'", regionName, estateName);
-
-            //We really need to attach it to another estate though... 
-            ES = estateConnector.GetEstateSettings (Constants.SystemEstateName);
-            if (ES != null)
-                if (estateConnector.LinkRegion (region.RegionID, (int) ES.EstateID))
-                    MainConsole.Instance.Warn ("'" + regionName + "' has been placed in the '" +
-                    Constants.SystemEstateName + "' estate until re-assigned");
-                    
-        }
-
-        private void ShowEstatesCommand(IScene scene, string[] cmd)
-        {
-            // if (scene == null)
-            //    return;
-            IEstateConnector estateConnector = Framework.Utilities.DataManager.RequestPlugin<IEstateConnector>();
-            IUserAccountService accountService = m_registry.RequestModuleInterface<IUserAccountService>();
-
-            string estateInfo;
-            var estates = estateConnector.GetEstates ();
-
-            // headings
-            estateInfo = String.Format ("{0, -20}", "Estate");
-            estateInfo += String.Format ("{0, -20}", "Owner");
-            estateInfo += String.Format ("{0, -10}", "Regions");
-            estateInfo += String.Format ("{0, -10}", "Voice");
-            estateInfo += String.Format ("{0, -10}", "Price/M");
-            estateInfo += String.Format ("{0, -10}", "Public");
-            estateInfo += String.Format ("{0, -10}", "Tax Free");
-            estateInfo += String.Format ("{0, -10}", "Direct Tp");
-
-            MainConsole.Instance.CleanInfo(estateInfo);
-            MainConsole.Instance.CleanInfo ("--------------------------------------------------------------------------------------------------");
-
-            foreach( string Estate in estates) 
-            {
-                var EstateID = (int) estateConnector.GetEstateID(Estate);
-                EstateSettings ES = estateConnector.GetEstateSettings (EstateID);
-
-                //var regInfo = scene.RegionInfo;
-                UserAccount EstateOwner = accountService.GetUserAccount (null, ES.EstateOwner);
-                var regions = estateConnector.GetRegions (EstateID);
-
-                // todo ... change hardcoded field sizes to public constants
-                estateInfo = String.Format ("{0, -20}", ES.EstateName);
-                estateInfo += String.Format ("{0, -20}", EstateOwner.Name);
-                estateInfo += String.Format ("{0, -10}", regions.Count);
-                estateInfo += String.Format ("{0, -10}", (ES.AllowVoice)?"Yes":"No");
-                estateInfo += String.Format ("{0, -10}", ES.PricePerMeter);
-                estateInfo += String.Format ("{0, -10}", (ES.PublicAccess)?"Yes":"No");
-                estateInfo += String.Format ("{0, -10}", (ES.TaxFree)?"Yes":"No");
-                estateInfo += String.Format ("{0, -10}", (ES.AllowDirectTeleport)?"Yes":"No");
-
-                MainConsole.Instance.CleanInfo(estateInfo);
-            }
-            MainConsole.Instance.CleanInfo("\n\n");
-
-        }
-
         public bool IsArchiving
         {
             get { return false; }
         }
 
+        /// <summary>
+        /// Saves the estate settings to an archive.
+        /// </summary>
+        /// <param name="writer">Writer.</param>
+        /// <param name="scene">Scene.</param>
         public void SaveModuleToArchive(TarArchiveWriter writer, IScene scene)
         {
             MainConsole.Instance.Debug("[Archive]: Writing estates to archive");
@@ -687,6 +344,13 @@ namespace WhiteCore.Modules.Estate
             MainConsole.Instance.Debug("[Archive]: Finished writing region info to archive");
         }
 
+        /// <summary>
+        /// Loads the estate settings from an archive.
+        /// </summary>
+        /// <param name="data">Data.</param>
+        /// <param name="filePath">File path.</param>
+        /// <param name="type">Type.</param>
+        /// <param name="scene">Scene.</param>
         public void LoadModuleFromArchive(byte[] data, string filePath, TarArchiveReader.TarEntryType type, IScene scene)
         {
             if (filePath.StartsWith("estatesettings/"))

@@ -25,7 +25,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-using WhiteCore.Framework;
 using WhiteCore.Framework.ClientInterfaces;
 using WhiteCore.Framework.ConsoleFramework;
 using WhiteCore.Framework.DatabaseInterfaces;
@@ -157,7 +156,8 @@ namespace WhiteCore.Modules.Land
                 m_UpdateDirectoryTimer.Start();
             }
 
-            UUID godParcelOwner = UUID.Zero;
+            //UUID godParcelOwner = UUID.Zero;
+            UUID godParcelOwner = (UUID)Constants.RealEstateOwnerUUID;
             if (_godParcelOwner != "")
             {
                 UserAccount acc = m_scene.UserAccountService.GetUserAccount(null, _godParcelOwner);
@@ -700,8 +700,8 @@ namespace WhiteCore.Modules.Land
         {
             if (avatar.CurrentParcel != null)
             {
-                //Tell the clint about it
-                avatar.CurrentParcel.SendLandUpdateToClient(avatar.ControllingClient);
+                //Tell the client about it
+                avatar.CurrentParcel.SendLandUpdateToClient (avatar.ControllingClient);
 
                 //Gotta kill all avatars outside the parcel
                 foreach (
@@ -715,22 +715,21 @@ namespace WhiteCore.Modules.Land
                         if (avatar.CurrentParcel.LandData.Private || (oldParcel != null && oldParcel.LandData.Private))
                             //Either one, we gotta send an update
                         {
-                            sp.SceneViewer.RemoveAvatarFromView(avatar);
-                            avatar.SceneViewer.RemoveAvatarFromView(sp);
-                            sp.SceneViewer.QueuePresenceForFullUpdate(avatar, true);
-                            avatar.SceneViewer.QueuePresenceForFullUpdate(sp, true);
+                            sp.SceneViewer.RemoveAvatarFromView (avatar);
+                            avatar.SceneViewer.RemoveAvatarFromView (sp);
+                            sp.SceneViewer.QueuePresenceForFullUpdate (avatar, true);
+                            avatar.SceneViewer.QueuePresenceForFullUpdate (sp, true);
                         }
-                    }
-                    else //Kill those outside the parcel
+                    } else //Kill those outside the parcel
                     {
                         if (sp.CurrentParcel.LandData.Private || avatar.CurrentParcel.LandData.Private)
                         {
-                            sp.ControllingClient.SendKillObject(sp.Scene.RegionInfo.RegionHandle,
-                                                                new IEntity[1] {avatar});
-                            avatar.ControllingClient.SendKillObject(sp.Scene.RegionInfo.RegionHandle,
-                                                                    new IEntity[1] {sp});
-                            sp.SceneViewer.RemoveAvatarFromView(avatar);
-                            avatar.SceneViewer.RemoveAvatarFromView(sp);
+                            sp.ControllingClient.SendKillObject (sp.Scene.RegionInfo.RegionHandle,
+                                new IEntity[1] { avatar });
+                            avatar.ControllingClient.SendKillObject (sp.Scene.RegionInfo.RegionHandle,
+                                new IEntity[1] { sp });
+                            sp.SceneViewer.RemoveAvatarFromView (avatar);
+                            avatar.SceneViewer.RemoveAvatarFromView (sp);
                         }
                     }
                 }
@@ -739,22 +738,21 @@ namespace WhiteCore.Modules.Land
                     avatar.CurrentParcel.LandData.Dwell += 1;
                 if (avatar.AbsolutePosition.Z < BAN_LINE_SAFETY_HEIGHT)
                 {
-                    if (avatar.CurrentParcel.IsBannedFromLand(avatar.UUID))
+                    if (avatar.CurrentParcel.IsBannedFromLand (avatar.UUID))
                     {
-                        SendYouAreBannedNotice(avatar);
-                        Vector3 pos = GetNearestAllowedPosition(avatar);
+                        SendYouAreBannedNotice (avatar);
+                        Vector3 pos = GetNearestAllowedPosition (avatar);
                         pos.Z -= avatar.PhysicsActor.Size.Z;
-                        avatar.Teleport(pos);
-                    }
-                    else if (avatar.CurrentParcel.IsRestrictedFromLand(avatar.UUID))
+                        avatar.Teleport (pos);
+                    } else if (avatar.CurrentParcel.IsRestrictedFromLand (avatar.UUID))
                     {
-                        SendYouAreRestrictedNotice(avatar);
-                        Vector3 pos = GetNearestAllowedPosition(avatar);
+                        SendYouAreRestrictedNotice (avatar);
+                        Vector3 pos = GetNearestAllowedPosition (avatar);
                         pos.Z -= avatar.PhysicsActor.Size.Z;
-                        avatar.Teleport(pos);
+                        avatar.Teleport (pos);
                     }
                 }
-            }
+            } 
         }
 
         private void SendOutNearestBanLine(IScenePresence sp, ILandObject ourLandObject)
@@ -942,7 +940,7 @@ namespace WhiteCore.Modules.Land
         /// <summary>
         ///     Removes a land object from the list. Will not remove if local_id is still owning an area in landIDList
         /// </summary>
-        /// <param name="local_id">Land.localID of the peice of land to remove.</param>
+        /// <param name="local_id">Land.localID of the piece of land to remove.</param>
         public void removeLandObject(int local_id)
         {
             lock (m_landListLock)
@@ -1191,8 +1189,8 @@ namespace WhiteCore.Modules.Land
         /// </summary>
         /// <param name="start_x">x value in first piece of land</param>
         /// <param name="start_y">y value in first piece of land</param>
-        /// <param name="end_x">x value in second peice of land</param>
-        /// <param name="end_y">y value in second peice of land</param>
+        /// <param name="end_x">x value in second piece of land</param>
+        /// <param name="end_y">y value in second piece of land</param>
         /// <param name="attempting_user_id">UUID of the avatar trying to join the land objects</param>
         /// <returns>Returns true if successful</returns>
         private void join(int start_x, int start_y, int end_x, int end_y, UUID attempting_user_id)
@@ -1717,9 +1715,9 @@ namespace WhiteCore.Modules.Land
         {
             if (!merge || data.Count == 0) //Serious fallback
                 ResetSimLandObjects();
-            foreach (LandData t in data)
+            foreach (LandData land in data)
             {
-                int oldRegionSize = (int)Math.Sqrt(t.Bitmap.Length * 8);
+                int oldRegionSize = (int)Math.Sqrt(land.Bitmap.Length * 8);
                 int offset_x = (int)(parcelOffset.X > 0 ? (parcelOffset.X / 4f) : 0),
                     offset_y = (int)(parcelOffset.Y > 0 ? (parcelOffset.Y / 4f) : 0),
                     i = 0, bitNum = 0;
@@ -1727,17 +1725,17 @@ namespace WhiteCore.Modules.Land
                 lock (m_landListLock)
                 {
                     //Update the localID
-                    t.LocalID = ++m_lastLandLocalID;
+                    land.LocalID = ++m_lastLandLocalID;
                 }
                 int x = 0, y = 0;
-                for (i = 0; i < t.Bitmap.Length; i++)
+                for (i = 0; i < land.Bitmap.Length; i++)
                 {
-                    tempByte = t.Bitmap[i];
+                    tempByte = land.Bitmap[i];
                     for (bitNum = 0; bitNum < 8; bitNum++)
                     {
                         bool bit = Convert.ToBoolean(Convert.ToByte(tempByte >> bitNum) & (byte)1);
                         if (bit)
-                            m_landIDList[offset_x + x, offset_y + y] = t.LocalID;
+                            m_landIDList[offset_x + x, offset_y + y] = land.LocalID;
                         x++;
                         if (x > oldRegionSize - 1)
                         {
@@ -1746,8 +1744,18 @@ namespace WhiteCore.Modules.Land
                         }
                     }
                 }
-                ILandObject new_land = new LandObject(t.OwnerID, t.IsGroupOwned, m_scene);
-                new_land.LandData = t;
+
+                // verify that the owner exists
+                UserAccount account = m_scene.UserAccountService.GetUserAccount(m_scene.RegionInfo.AllScopeIDs, land.OwnerID);
+                if (account == null)
+                {
+                    // incomming owner is invalid so re-assign
+                    land.OwnerID = (UUID)Constants.RealEstateOwnerUUID;
+                    land.IsGroupOwned = false;
+                }
+
+                ILandObject new_land = new LandObject(land.OwnerID, land.IsGroupOwned, m_scene);
+                new_land.LandData = land;
                 new_land.ForceUpdateLandInfo();
                 lock (m_landListLock)
                 {

@@ -131,7 +131,14 @@ namespace WhiteCore.Services.DataService
                 return estateID;
             }
 
-            es.EstateID = GetNewEstateID();
+            // check for system user/estate
+            if ( (es.EstateOwner == (UUID) Constants.RealEstateOwnerUUID) )           // probably don't need to check both :)
+//                (es.EstateName == Constants.SystemEstateName) )                     // maybe if the system user can have muktiple estates??
+            {
+                es.EstateID = (uint) Constants.SystemEstateID;                        // Default Mainland estate  # 
+            } else
+                es.EstateID = GetNewEstateID();
+
             SaveEstateSettings(es, true);
             return (int) es.EstateID;
         }
@@ -248,7 +255,7 @@ namespace WhiteCore.Services.DataService
             object remoteValue = DoRemote(ownerID, name);
             if (remoteValue != null || m_doRemoteOnly)
                 return (int) remoteValue;
-
+                
             QueryFilter filter = new QueryFilter();
             filter.andFilters["EstateName"] = name;
             filter.andFilters["EstateOwner"] = ownerID;
@@ -363,7 +370,13 @@ namespace WhiteCore.Services.DataService
                                                          "COUNT(EstateID)",
                                                          "MAX(EstateID)"
                                                      }, m_estateTable, null, null, null, null);
-            return (uint.Parse(QueryResults[0]) > 0) ? uint.Parse(QueryResults[1]) + 1 : 100;
+            if (uint.Parse (QueryResults [0]) > 0)
+            {
+                uint esID = uint.Parse (QueryResults [1]);
+                if (esID > 99)                                 // system estate is #1, user estates start at 100
+                    return esID + 1;
+            }
+            return 100;
         }
 
         protected void SaveEstateSettings(EstateSettings es, bool doInsert)

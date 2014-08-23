@@ -228,7 +228,7 @@ namespace WhiteCore.Physics.OpenDynamicsEngine
         #region Constructor/Initialization
 
         /// <summary>
-        ///     Initiailizes the scene
+        ///     Initializes the scene
         ///     Sets many properties that ODE requires to be stable
         ///     These settings need to be tweaked 'exactly' right or weird stuff happens.
         /// </summary>
@@ -1520,14 +1520,23 @@ namespace WhiteCore.Physics.OpenDynamicsEngine
             float hfmax = _heightmap.Max();
 
             SimulationChangesQueue.Enqueue(() =>
-                                               {
-                                                   if (RegionTerrain != IntPtr.Zero)
-                                                   {
-                                                       d.GeomHeightfieldDataDestroy(RegionTerrain);
-                                                       d.SpaceRemove(space, RegionTerrain);
+			                               {
+                                            	if (RegionTerrain != IntPtr.Zero)
+                                                {
+					                        		IntPtr sGeomIsIn = d.GeomGetSpace(RegionTerrain);       // 20140729 -greythane- this seems to correct the spaceremove crash
+                        							if (sGeomIsIn != IntPtr.Zero)                           // maybe 'space' has not yet been initialised??
+                        							{
+                            							if (d.GeomIsSpace(sGeomIsIn))
+                                							d.SpaceRemove(sGeomIsIn, RegionTerrain);
+													}
+
+													d.GeomHeightfieldDataDestroy(RegionTerrain);
+                                                    
+                                                     //         d.SpaceRemove(space, RegionTerrain);         // <<==  
                                                        //d.GeomDestroy(RegionTerrain);
-                                                       GC.RemoveMemoryPressure(_heightmap.Length);
-                                                   }
+                                                    GC.RemoveMemoryPressure(_heightmap.Length);
+                                                }
+
 
                                                    const float scale = 1f;
                                                    const float offset = 0.0f;

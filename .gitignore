@@ -42,12 +42,14 @@ WhiteCore.sln
 WhiteCore.sln.cache
 WhiteCore.suo
 WhiteCore.v11.suo
+WhiteCore.v12.suo
 WhiteCoreDocs/doxygen/
 
 WhiteCoreSim/Data/AssetCache/*
 WhiteCoreSim/Data/Region/*.sim
 WhiteCoreSim/Data/RegionBak/*.sim
 WhiteCoreSim/Data/SQLite/*.db
+WhiteCoreSim/Data/OarFiles/*
 
 WhiteCoreSim/Data/ScriptEngines/*-*-*-*-*
 WhiteCoreSim/Data/ScriptEngines/*.dll
@@ -96,5 +98,5 @@ Prebuild/Prebuild.sln
 TAGS
 TestResult.xml
 *StyleCop.Cache
+*.StyleCop
 debug/*
-

@@ -163,6 +163,8 @@ namespace WhiteCore.Modules.Web.Translators
                     return "Region Naam";
                 case "RegionTypeText":
                     return "Region Type";
+            case "RegionTerrainText":
+                return "Region Terrain";
                 case "ParcelsInRegionText":
                     return "Parcels In Region";
                 case "ParcelNameText":
@@ -395,13 +397,15 @@ namespace WhiteCore.Modules.Web.Translators
                 case "HelpText":
                     return "Help";
                 case "HelpViewersConfigText":
-                    return "Help Viewers Configuration";
-                case "AngstormViewer":
-                    return "Angstorm Viewer";
+                    return "Viewer Configuratie";
+                case "AngstromViewer":
+                    return "Angstrom Viewer";
                 case "AstraViewer":
                     return "Astra Viewer";
                 case "FirestormViewer":
                     return "Firestorm Viewer";
+                case "KokuaViewer":
+                    return "Kokua Viewer";
                 case "ImprudenceViewer":
                     return "Imprudence Viewer";
                 case "PhoenixViewer":

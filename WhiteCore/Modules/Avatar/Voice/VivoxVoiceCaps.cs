@@ -113,7 +113,7 @@ namespace WhiteCore.Modules
 
             IConfig vivoxConfig = config.Configs["VivoxVoice"];
 
-            if (null == vivoxConfig)
+            if (vivoxConfig == null)
                 return;
 
             try
@@ -366,6 +366,7 @@ namespace WhiteCore.Modules
             if (success)
                 channel_uri = RegionGetOrCreateChannel(user.CurrentRegionID, regionClient.Region.RegionName, parcelID,
                                                        parcelName, localID, parcelFlags, ParentID);
+
         }
 
         public void GetParcelChannelInfo(UUID avatarID, WhiteCore.Framework.Services.GridRegion region, string URL,
@@ -376,19 +377,31 @@ namespace WhiteCore.Modules
             OSDMap request = new OSDMap();
             request["AvatarID"] = avatarID;
             request["Method"] = "GetParcelChannelInfo";
+            request ["RegionName"] = region.RegionName;
             OSDMap response = null;
             syncPoster.Get(URL, request, resp => { response = resp; });
             while (response == null)
-                Thread.Sleep(5);
+                Thread.Sleep (5);
 
             success = response["Success"];
-            if (response["NoAgent"])
-                throw new NotSupportedException();
-            parcelID = response["ParcelID"];
-            parcelName = response["ParcelName"];
-            localID = response["LocalID"];
-            parcelFlags = response["ParcelFlags"];
-            ParentID = GetParentIDForRegion(region);
+            bool noAgents = response ["NoAgent"];
+            if (!success || noAgents)
+            {
+                // parcel is not voice enabled or there are no agents here
+                parcelID = UUID.Zero;
+                parcelName = "";
+                localID = 0;
+                parcelFlags = 0;
+                ParentID = "";
+            } else
+            {
+                // set parcel details
+                parcelID = response ["ParcelID"];
+                parcelName = response ["ParcelName"];
+                localID = response ["LocalID"];
+                parcelFlags = response ["ParcelFlags"];
+                ParentID = GetParentIDForRegion (region);
+            }
         }
 
         private string GetParentIDForRegion(WhiteCore.Framework.Services.GridRegion region)
@@ -499,7 +512,7 @@ namespace WhiteCore.Modules
                 if (VivoxTryGetChannel(voiceParentID, landUUID, out channelId, out channelUri))
                     MainConsole.Instance.DebugFormat("[VivoxVoice] Found existing channel at " + channelUri);
                 else if (VivoxTryCreateChannel(voiceParentID, landUUID, landName, out channelUri))
-                    MainConsole.Instance.DebugFormat("[VivoxVoice] Created new channel at " + channelUri);
+                    MainConsole.Instance.InfoFormat("[VivoxVoice] Created new channel at {0} for {1}", channelUri, regionName);
                 else
                     throw new Exception("vivox channel uri not available");
 
@@ -632,7 +645,7 @@ namespace WhiteCore.Modules
         ///     Once again, there a multitude of options possible. In the simplest case
         ///     we specify only the name and get a non-persistent cannel in return. Non
         ///     persistent means that the channel gets deleted if no-one uses it for
-        ///     5 hours. To accomodate future requirements, it may be a good idea to
+        ///     5 hours. To accommodate future requirements, it may be a good idea to
         ///     initially create channels under the umbrella of a parent ID based upon
         ///     the region name. That way we have a context for side channels, if those
         ///     are required in a later phase.
@@ -704,7 +717,7 @@ namespace WhiteCore.Modules
         ///     Once again, there a multitude of options possible. In the simplest case
         ///     we specify only the name and get a non-persistent cannel in return. Non
         ///     persistent means that the channel gets deleted if no-one uses it for
-        ///     5 hours. To accomodate future requirements, it may be a good idea to
+        ///     5 hours. To accommodate future requirements, it may be a good idea to
         ///     initially create channels under the umbrella of a parent ID based upon
         ///     the region name. That way we have a context for side channels, if those
         ///     are required in a later phase.
@@ -861,7 +874,7 @@ namespace WhiteCore.Modules
         ///     Once again, there a multitude of options possible. In the simplest case
         ///     we specify only the name and get a non-persistent cannel in return. Non
         ///     persistent means that the channel gets deleted if no-one uses it for
-        ///     5 hours. To accomodate future requirements, it may be a good idea to
+        ///     5 hours. To accommodate future requirements, it may be a good idea to
         ///     initially create channels under the umbrella of a parent ID based upon
         ///     the region name. That way we have a context for side channels, if those
         ///     are required in a later phase.
@@ -925,7 +938,7 @@ namespace WhiteCore.Modules
 
         /// <summary>
         ///     This method handles the WEB side of making a request over the
-        ///     Vivox interface. The returned values are tansferred to a has
+        ///     Vivox interface. The returned values are transferred to a hash
         ///     table which is returned as the result.
         ///     The outcome of the call can be determined by examining the
         ///     status value in the hash table.
@@ -1063,7 +1076,7 @@ namespace WhiteCore.Modules
         ///     the name hierarchy passed in the 'tag' parameter.
         ///     If the whole hierarchy is resolved, the InnerText
         ///     value at that point is returned. Note that this
-        ///     may itself be a subhierarchy of the entire
+        ///     may itself be a sub-hierarchy of the entire
         ///     document. The function returns a boolean indicator
         ///     of the search's success. The search is performed
         ///     by the recursive Search method.

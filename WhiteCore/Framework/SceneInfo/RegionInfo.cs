@@ -56,6 +56,8 @@ namespace WhiteCore.Framework.SceneInfo
         protected int m_regionLocY;
         protected int m_regionLocZ;
         protected int m_regionPort;
+        protected string m_regionTerrain = "Flatland";
+        protected uint m_regionArea;
         private UUID m_GridSecureSessionID = UUID.Zero;
         private bool m_seeIntoThisSimFromNeighbor = true;
 
@@ -191,6 +193,20 @@ namespace WhiteCore.Framework.SceneInfo
             set { m_regionPort = value; }
         }
 
+        [ProtoMember(25)]
+        public string RegionTerrain
+        {
+            get { return m_regionTerrain; }
+            set { m_regionTerrain = value; }
+        }
+
+        [ProtoMember(26)]
+        public uint RegionArea
+        {
+            get { return m_regionArea; }
+            set { m_regionArea = value; }
+        }
+
         public ulong RegionHandle
         {
             get { return Utils.UIntsToLong((uint) RegionLocX, (uint) RegionLocY); }
@@ -221,6 +237,10 @@ namespace WhiteCore.Framework.SceneInfo
             if (EnvironmentSettings != null)
                 args["EnvironmentSettings"] = EnvironmentSettings;
             args["OpenRegionSettings"] = OpenRegionSettings.ToOSD();
+            if (RegionTerrain != String.Empty)
+                args["region_terrain"] = OSD.FromString(RegionTerrain);
+            args["region_area"] = OSD.FromInteger(RegionArea);
+
             return args;
         }
 
@@ -285,6 +305,11 @@ namespace WhiteCore.Framework.SceneInfo
                 OpenRegionSettings = new OpenRegionSettings();
             if (args.ContainsKey("EnvironmentSettings"))
                 EnvironmentSettings = args["EnvironmentSettings"];
+            if (args.ContainsKey("region_terrain"))
+                m_regionTerrain = args["region_terrain"].AsString();
+            if (args.ContainsKey("region_area"))
+                RegionArea = (uint) args["region_area"].AsInteger();
+
         }
 
         public override void FromOSD(OSDMap map)
@@ -326,6 +351,8 @@ namespace WhiteCore.Framework.SceneInfo
             //GridSecureSessionID = ri.GridSecureSessionID;
             //OpenRegionSettings = ri.OpenRegionSettings;
             //EnvironmentSettings =  ri.EnvironmentSettings;
+            RegionTerrain = ri.RegionTerrain;
+            RegionArea = ri.RegionArea;
 
         }
 

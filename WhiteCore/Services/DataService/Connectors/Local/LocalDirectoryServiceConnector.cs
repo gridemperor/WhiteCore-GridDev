@@ -350,6 +350,8 @@ namespace WhiteCore.Services.DataService
                                {
                                    LandData = land,
                                    RegionType = region.RegionType,
+                                   RegionTerrain = region.RegionTerrain,
+                                   RegionArea = region.RegionArea,
                                    RegionName = region.RegionName,
                                    GlobalPosX = region.RegionLocX + land.UserLocation.X,
                                    GlobalPosY = region.RegionLocY + land.UserLocation.Y
@@ -1052,7 +1054,7 @@ namespace WhiteCore.Services.DataService
         }
 
         /// <summary>
-        ///     Retrives all events in the given region by their maturity level
+        ///     Retrieves all events in the given region by their maturity level
         /// </summary>
         /// <param name="regionName"></param>
         /// <param name="maturity">Uses DirectoryManager.EventFlags to determine the maturity requested</param>
